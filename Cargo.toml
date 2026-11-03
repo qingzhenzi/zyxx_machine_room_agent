@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/qe-agent",
+    "crates/qe-node-agent",
+    "crates/qe-room-agent",
+    "crates/qe-device-pki-client",
+    "crates/qe-container",
+    "crates/virt-crate",
+    "crates/virt-crate/crates/virt-core",
+    "crates/virt-crate/crates/virt-kvm",
+    "crates/virt-crate/crates/virt-libvirt",
+    "crates/qeaudit",
+    "crates/qeaudit/qep2p",
+]
+# Tauri 应用是独立工程（自有前端工具链与发布流程），不并入本 workspace
+exclude = ["apps/agent-client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/QEStudio/backend-template"
+authors = ["QEStudio"]
+
+[workspace.dependencies]
+# virt-crate 系列共用（原 virt-crate 内部 workspace 下沉至此）
+thiserror = "2"
+kvm-ioctls = "0.25"
+kvm-bindings = "0.14"
+virt = "0.4"
+virt-core = { path = "crates/virt-crate/crates/virt-core" }
+virt-kvm = { path = "crates/virt-crate/crates/virt-kvm" }
+virt-libvirt = { path = "crates/virt-crate/crates/virt-libvirt" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# qeaudit 原是 opt-level="z" 的独立工程，按包覆盖保留其体积优化。
+# 注意不要给它设 panic="abort"：main 里用 catch_unwind 隔离单个检查器的崩溃。
+[profile.release.package.qeaudit]
+opt-level = "z"

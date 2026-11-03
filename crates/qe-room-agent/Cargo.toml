@@ -1,0 +1,35 @@
+[package]
+name = "qe-room-agent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "QEStudio 房间机器 agent：采集主机/健康/诊断数据并上报 qe-api"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+qe-device-pki-client = { path = "../qe-device-pki-client" }
+qe-domain = { path = "../../../room_node/room_node_backend/crates/domain" }
+# 守护进程内能力库：安全核查 / 容器 / 虚拟化，进程内直调，不再 spawn 外部进程。
+qeaudit = { path = "../qeaudit" }
+qe-container = { path = "../qe-container" }
+virt-core = { path = "../virt-crate/crates/virt-core" }
+virt-libvirt = { path = "../virt-crate/crates/virt-libvirt" }
+rustls = "0.23"
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "net", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+rcgen = "0.13"
+tempfile = "3"

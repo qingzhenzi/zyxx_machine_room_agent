@@ -1,0 +1,40 @@
+[package]
+name = "qe-node-agent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "QEStudio 房间节点 agent：经 device-pki mTLS 拉取/校验/导入镜像与资源"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+ed25519-dalek = "2"
+futures-util = "0.3"
+hex = "0.4"
+qe-device-pki-client = { path = "../qe-device-pki-client" }
+rustls = "0.23"
+qe-domain = { path = "../../../room_node/room_node_backend/crates/domain" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "fs",
+    "io-util",
+    "process",
+    "sync",
+    "time",
+    "signal",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"

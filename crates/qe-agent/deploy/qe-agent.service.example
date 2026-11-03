@@ -1,0 +1,48 @@
+# QEStudio 统一 agent（qe-agent）systemd 单元示例。
+#
+# 单服务、单进程同时跑 node + machine 两个角色，并暴露本机 IPC 给 GUI：
+#   qe-agent run --role both --ipc-socket /run/qe-agent/agent.sock
+#
+# 安装（workspace 根目录）：
+#   cargo build -p qe-agent --release
+#   sudo install -m 0755 target/release/qe-agent /usr/local/bin/qe-agent
+#   sudo install -m 0644 crates/agent/deploy/qe-agent.service.example \
+#        /etc/systemd/system/qe-agent.service
+#   sudo install -m 0600 /dev/null /etc/qe-agent.env    # 写入环境变量
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now qe-agent
+#
+# GUI（agent-client）通过 /run/qe-agent/agent.sock 访问；GUI 用户需要加入 qe-agent 组：
+#   sudo groupadd --system qe-agent || true
+#   sudo usermod -aG qe-agent "$USER"
+
+[Unit]
+Description=QEStudio agent (image pull + machine telemetry + local IPC)
+Documentation=https://github.com/QEStudio/room_node_backend/blob/main/crates/agent/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/qe-agent.env
+Environment=RUST_LOG=info,qe_agent=debug
+# node 角色要写 docker/incus/libvirt，通常需要 root；machine 角色可用专用用户。
+User=root
+Group=qe-agent
+# 创建 /run/qe-agent（0750，root:qe-agent），IPC socket 由 agent 自己设为 0660。
+RuntimeDirectory=qe-agent
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/qe-agent run --role both --ipc-socket /run/qe-agent/agent.sock
+Restart=on-failure
+RestartSec=5
+# 停止时给 image.pull 当前任务一点收尾时间（未送达消息留在 outbox，下次启动重放）。
+TimeoutStopSec=30
+
+# 基础加固：agent 需要读 /proc、/sys 与 docker.sock / libvirt / incus socket。
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
