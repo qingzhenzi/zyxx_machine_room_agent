@@ -1,0 +1,19 @@
+# qep2p 自建 relay 的最小内网配置：明文 HTTP + shared token。
+#
+# 启动：
+#   iroh-relay --config-path /etc/qep2p/relay.toml
+#
+# 客户端：
+#   QEP2P_RELAY=http://relay.intra:3340 \
+#   QEP2P_RELAY_TOKEN=<token> qep2p serve --inbox ~/Downloads/qep2p
+#
+# 注意：没有 tls 段时所有流量都是明文 HTTP，只适合可信内网。
+# 需要跨不可信网络时，请配置 tls（Manual / LetsEncrypt）或放在 TLS 反向代理后面。
+
+http_bind_addr = "0.0.0.0:3340"
+enable_relay = true
+enable_quic_addr_discovery = false
+enable_metrics = false
+
+# 只允许持有 token 的节点使用 relay；换成足够长的随机串。
+access.shared_token = ["replace-with-a-long-random-token"]

@@ -11,7 +11,7 @@ members = [
     "crates/virt-crate/crates/virt-kvm",
     "crates/virt-crate/crates/virt-libvirt",
     "crates/qeaudit",
-    "crates/qeaudit/qep2p",
+    "crates/qep2p",
 ]
 # Tauri 应用是独立工程（自有前端工具链与发布流程），不并入本 workspace
 exclude = ["apps/agent-client"]
@@ -36,7 +36,7 @@ virt-libvirt = { path = "crates/virt-crate/crates/virt-libvirt" }
 
 [profile.release]
 lto = "thin"
-codegen-units = 1
+codegen-units = 4
 strip = "symbols"
 
 # qeaudit 原是 opt-level="z" 的独立工程，按包覆盖保留其体积优化。

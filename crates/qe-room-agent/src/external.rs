@@ -544,14 +544,9 @@ fn inproc_vms() -> (ToolStatus, Option<Vec<Value>>) {
     use virt_core::Hypervisor;
 
     let started = Instant::now();
-    if !virt_libvirt::LibvirtHypervisor::is_available() {
-        return (
-            ToolStatus::failure(Duration::ZERO, "libvirt 不可用"),
-            None,
-        );
-    }
-    let outcome = virt_libvirt::LibvirtHypervisor::connect().and_then(|hv| hv.list_domains());
-    match outcome {
+    // 直接连、直接查：不再先 `is_available()` 再 `connect()`，那会每轮采集
+    // 向 libvirtd 建两次连接（fast 档 10s 一次，房间节点上纯属浪费）。
+    match virt_libvirt::LibvirtHypervisor::connect().and_then(|hv| hv.list_domains()) {
         Ok(domains) => {
             let vms = domains.iter().map(vm_value).collect();
             (ToolStatus::success(started.elapsed()), Some(vms))
@@ -571,8 +566,14 @@ fn vm_value(info: &virt_core::DomainInfo) -> Value {
     }
     map.insert("state".to_owned(), json!(domain_state_str(info.state)));
     // 非运行域的 id 无效（virsh 显示 `-`），与 CLI 解析一致地省略。
-    if info.id.get() > 0 {
+    if !info.id.is_unset() {
         map.insert("id".to_owned(), json!(info.id.get()));
+    }
+    if info.vcpus > 0 {
+        map.insert("vcpus".to_owned(), json!(info.vcpus));
+    }
+    if info.max_memory_kib > 0 {
+        map.insert("memory_bytes".to_owned(), json!(info.max_memory_kib * 1024));
     }
     Value::Object(map)
 }
@@ -1048,6 +1049,25 @@ mod tests {
         assert_eq!(vms[1]["name"], json!("win11"));
         assert_eq!(vms[1]["state"], json!("shut off"));
         assert!(vms[1].get("id").is_none());
+    }
+
+    #[test]
+    fn vm_value_carries_resources() {
+        let info = virt_core::DomainInfo {
+            id: virt_core::DomainId::new(3),
+            name: "debian12".to_owned(),
+            state: virt_core::DomainState::Running,
+            vcpus: 2,
+            max_memory_kib: 2048,
+            memory_kib: 1024,
+        };
+        let value = vm_value(&info);
+        assert_eq!(value["name"], json!("debian12"));
+        assert_eq!(value["state"], json!("running"));
+        assert_eq!(value["id"], json!(3));
+        assert_eq!(value["vcpus"], json!(2));
+        // 契约字段是字节数，前端 numField 读的就是 memory_bytes。
+        assert_eq!(value["memory_bytes"], json!(2 * 1024 * 1024));
     }
 
     #[test]

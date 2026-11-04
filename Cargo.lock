@@ -3739,6 +3739,7 @@ dependencies = [
  "tokio",
  "tracing-subscriber",
  "virt-core",
+ "virt-crate",
  "virt-libvirt",
 ]
 
@@ -3765,13 +3766,19 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bollard",
+ "bytes",
  "clap",
  "dotenvy",
  "fastrand",
  "futures-util",
  "hex",
+ "http",
+ "http-body-util",
  "humantime",
  "humantime-serde",
+ "hyper",
+ "hyper-util",
+ "hyperlocal",
  "ipnet",
  "serde",
  "serde_json",

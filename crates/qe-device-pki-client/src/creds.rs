@@ -131,14 +131,39 @@ impl Credentials {
             .ok_or_else(|| Error::Storage("key.pem 中没有私钥".into()))
     }
 
+    /// 从证书中提取 CN（设备槽位标识）
+    pub fn extract_cn_from_cert_pem(cert_pem: &str) -> Result<String> {
+        use x509_parser::prelude::*;
+        let mut rd = std::io::BufReader::new(cert_pem.as_bytes());
+        let certs: std::result::Result<Vec<_>, _> = rustls_pemfile::certs(&mut rd).collect();
+        let certs = certs.map_err(|e| Error::Storage(format!("parse cert.pem: {e}")))?;
+        let der = certs
+            .first()
+            .ok_or_else(|| Error::Storage("证书链为空".into()))?;
+        let (_, parsed) = X509Certificate::from_der(der.as_ref())
+            .map_err(|e| Error::Storage(format!("证书 DER: {e}")))?;
+        let cn = parsed
+            .subject()
+            .iter_common_name()
+            .next()
+            .and_then(|attr| attr.as_str().ok())
+            .ok_or_else(|| Error::Storage("证书中未找到 CN".into()))?;
+        Ok(cn.to_owned())
+    }
+
+    /// 从本地凭证目录加载并从证书提取 CN
+    pub fn load_with_cn(dir: &Path) -> Result<(Self, String)> {
+        let creds = Self::load(dir)?;
+        let cn = Self::extract_cn_from_cert_pem(&creds.cert_pem)?;
+        Ok((creds, cn))
+    }
+
     pub fn ca_roots(&self) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
         let mut rd = std::io::BufReader::new(self.ca_chain_pem.as_bytes());
         let certs: std::result::Result<Vec<_>, _> = rustls_pemfile::certs(&mut rd).collect();
         certs.map_err(|e| Error::Storage(format!("parse ca-chain.pem: {e}")))
     }
 }
-
-/// 凭证问题分类 —— 用于给出可操作的恢复建议，而不是一个裸 IO 错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CredIssue {
     /// 从未注册过

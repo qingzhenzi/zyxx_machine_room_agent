@@ -79,29 +79,22 @@ fn containers() -> CapStatus {
 fn virt() -> CapStatus {
     use virt_core::Hypervisor;
 
-    if !virt_libvirt::LibvirtHypervisor::is_available() {
-        return CapStatus {
-            name: "virt-libvirt 虚拟化",
-            available: false,
-            detail: "libvirt 不可用（遥测回退 virsh CLI）".to_owned(),
-        };
-    }
-    match virt_libvirt::LibvirtHypervisor::connect() {
-        Ok(hv) => {
+    // 一次连接搞定探测：连不上就是不可用；连上了顺带报版本和实际 URI。
+    match virt_libvirt::LibvirtHypervisor::connect_best() {
+        Ok((hv, uri)) => {
             let version = hv
-                .version()
-                .map(|v| format!("libvirt {v}"))
-                .unwrap_or_else(|_| "libvirt".to_owned());
+                .version_string()
+                .unwrap_or_else(|_| "版本未知".to_owned());
             CapStatus {
                 name: "virt-libvirt 虚拟化",
                 available: true,
-                detail: format!("已连接（{version}）"),
+                detail: format!("已连接（libvirt {version}，{uri}）"),
             }
         }
         Err(error) => CapStatus {
             name: "virt-libvirt 虚拟化",
             available: false,
-            detail: format!("{error}（遥测回退 virsh CLI）"),
+            detail: format!("libvirt 不可用（{error}）；遥测回退 virsh CLI"),
         },
     }
 }

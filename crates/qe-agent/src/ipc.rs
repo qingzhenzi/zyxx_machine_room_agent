@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use qe_device_pki_client::creds::{self, Credentials};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -283,7 +284,7 @@ fn status_json(state: &IpcState) -> Value {
     let credentials = load_credentials(state);
     let (device_slot, serial, mtls_endpoint) = match &credentials {
         Some(credentials) => (
-            Some(credentials.device_slot.clone()),
+            Some(device_identity_from_creds(credentials)),
             Some(credentials.serial.clone()),
             Some(credentials.mtls_endpoint.clone()),
         ),
@@ -394,9 +395,9 @@ async fn enroll(state: &IpcState, body: &[u8]) -> (u16, Value) {
 }
 
 /// 读取本地设备凭证；槽位未知时只在 `creds/` 下恰好一个目录时采用。
-fn load_credentials(state: &IpcState) -> Option<qe_device_pki_client::creds::Credentials> {
+fn load_credentials(state: &IpcState) -> Option<Credentials> {
     let dir = match state.slot.as_deref() {
-        Some(slot) => qe_device_pki_client::creds::locate(slot, Some(&state.data_dir)).ok()?,
+        Some(slot) => creds::locate(slot, Some(&state.data_dir)).ok()?,
         None => {
             let root = state.data_dir.join("creds");
             let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
@@ -412,7 +413,12 @@ fn load_credentials(state: &IpcState) -> Option<qe_device_pki_client::creds::Cre
             dirs.remove(0)
         }
     };
-    qe_device_pki_client::creds::Credentials::load(&dir).ok()
+    Credentials::load(&dir).ok()
+}
+
+fn device_identity_from_creds(creds: &Credentials) -> String {
+    Credentials::extract_cn_from_cert_pem(&creds.cert_pem)
+        .unwrap_or_else(|_| creds.device_slot.clone())
 }
 
 fn error_json(code: &str, message: impl Into<String>) -> Value {

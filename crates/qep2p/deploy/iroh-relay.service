@@ -1,0 +1,25 @@
+[Unit]
+Description=iroh relay for qep2p
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iroh-relay
+Group=iroh-relay
+ExecStart=/usr/local/bin/iroh-relay --config-path /etc/qep2p/relay.toml
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

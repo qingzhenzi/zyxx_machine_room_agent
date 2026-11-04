@@ -17,9 +17,10 @@ qe-room-agent = { path = "../qe-room-agent" }
 # 守护进程能力库（进程内直接使用）：安全核查 / 容器 / 虚拟化 / P2P 传输。
 qeaudit = { path = "../qeaudit" }
 qe-container = { path = "../qe-container" }
+virt-crate = { path = "../virt-crate", features = ["libvirt-backend"] }
 virt-core = { path = "../virt-crate/crates/virt-core" }
 virt-libvirt = { path = "../virt-crate/crates/virt-libvirt" }
-qep2p = { path = "../qeaudit/qep2p" }
+qep2p = { path = "../qep2p" }
 rustls = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
