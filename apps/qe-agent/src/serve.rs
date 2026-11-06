@@ -90,21 +90,33 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
     let machine_info = || qe_room_agent::config::Config::from_env(&room_cli()).ok();
 
+    // 引导流水线：IPC 已就绪（各角色上方 start_ipc），防火墙/展示层/检查/
+    // 注册/服务检测顺序执行；阶段失败不阻塞 serve。
+    let boot = crate::boot::pipeline::spawn(data_dir.clone(), effective_slot.clone());
+
+    // 远端 config.update 下发成功后联动 boot 周期检查：full 档间隔即
+    // "周期性深度检查"节奏，直接作为 checks 复检间隔。
+    qe_node_agent::on_remote_policy_applied({
+        let boot_handle = boot.clone();
+        move |full_interval_secs| boot_handle.set_checks_interval(full_interval_secs)
+    });
+
     match opts.role {
         Role::Node => {
             if let Some(socket) = opts.ipc_socket.as_deref() {
-                start_ipc(
+                start_ipc(IpcArgs {
                     socket,
-                    &data_dir,
-                    effective_slot.clone(),
-                    vec!["node"],
-                    None,
-                    None,
-                    logs.clone(),
-                )?;
+                    data_dir: &data_dir,
+                    slot: effective_slot.clone(),
+                    roles: vec!["node"],
+                    report_mode: None,
+                    intervals: None,
+                    logs: logs.clone(),
+                    boot: Some(boot.clone()),
+                })?;
             }
-            let config = node_config(&data_dir, effective_slot.as_deref())
-                .context("读取 agent 配置失败")?;
+            let config =
+                node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
             block_on(qe_node_agent::run_with_config(config))
         }
         Role::Machine => {
@@ -116,15 +128,16 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
                 let intervals = info
                     .as_ref()
                     .map(|config| (config.fast_interval_secs, config.full_interval_secs));
-                start_ipc(
+                start_ipc(IpcArgs {
                     socket,
-                    &data_dir,
-                    effective_slot.clone(),
-                    vec!["machine"],
-                    mode,
+                    data_dir: &data_dir,
+                    slot: effective_slot.clone(),
+                    roles: vec!["machine"],
+                    report_mode: mode,
                     intervals,
-                    logs.clone(),
-                )?;
+                    logs: logs.clone(),
+                    boot: Some(boot.clone()),
+                })?;
             }
             let code = qe_room_agent::run_with_cli(room_cli());
             if code != 0 {
@@ -141,15 +154,16 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
                 .as_ref()
                 .map(|config| (config.fast_interval_secs, config.full_interval_secs));
             if let Some(socket) = opts.ipc_socket.as_deref() {
-                start_ipc(
+                start_ipc(IpcArgs {
                     socket,
-                    &data_dir,
-                    effective_slot.clone(),
-                    vec!["node", "machine"],
-                    mode,
+                    data_dir: &data_dir,
+                    slot: effective_slot.clone(),
+                    roles: vec!["node", "machine"],
+                    report_mode: mode,
                     intervals,
-                    logs.clone(),
-                )?;
+                    logs: logs.clone(),
+                    boot: Some(boot.clone()),
+                })?;
             }
 
             let machine_cli = room_cli();
@@ -163,23 +177,36 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
                 })
                 .context("启动 machine 角色线程失败")?;
 
-            let config = node_config(&data_dir, effective_slot.as_deref())
-                .context("读取 agent 配置失败")?;
+            let config =
+                node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
             block_on(qe_node_agent::run_with_config(config))
         }
     }
 }
 
-fn start_ipc(
-    socket: &std::path::Path,
-    data_dir: &std::path::Path,
+struct IpcArgs<'a> {
+    socket: &'a std::path::Path,
+    data_dir: &'a std::path::Path,
     slot: Option<String>,
-    roles: Vec<&str>,
+    roles: Vec<&'a str>,
     report_mode: Option<String>,
     intervals: Option<(u64, u64)>,
     logs: logging::LogBuffer,
-) -> Result<()> {
-    let state = ipc::IpcState::new(
+    boot: Option<crate::boot::PipelineHandle>,
+}
+
+fn start_ipc(args: IpcArgs<'_>) -> Result<()> {
+    let IpcArgs {
+        socket,
+        data_dir,
+        slot,
+        roles,
+        report_mode,
+        intervals,
+        logs,
+        boot,
+    } = args;
+    let mut state = ipc::IpcState::new(
         socket.to_path_buf(),
         data_dir.to_path_buf(),
         slot,
@@ -188,6 +215,7 @@ fn start_ipc(
         intervals,
         logs,
     );
+    state.boot = boot;
     ipc::spawn(state)
 }
 

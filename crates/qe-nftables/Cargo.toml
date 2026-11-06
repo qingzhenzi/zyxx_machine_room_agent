@@ -1,0 +1,29 @@
+[package]
+name = "qe-nftables"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "nftables firewall adapter for QEStudio agents"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+which = "7"
+
+# JSON 规则集后端（可选）：依赖 libnftables 系统库，默认关闭。
+nftables = { version = "0.6", optional = true }
+
+[features]
+default = []
+# 启用后优先用 libnftables JSON API，而不是 shelling out 到 `nft`。
+json-backend = ["dep:nftables"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

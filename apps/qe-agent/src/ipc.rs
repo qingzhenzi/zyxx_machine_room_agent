@@ -39,6 +39,8 @@ pub struct IpcState {
     pub started_at: Instant,
     pub logs: LogBuffer,
     pub enroll_lock: Arc<tokio::sync::Mutex<()>>,
+    /// boot 流水线状态（None = 未启用 boot 流水线，如 cli 模式）。
+    pub boot: Option<crate::boot::PipelineHandle>,
 }
 
 impl IpcState {
@@ -61,6 +63,7 @@ impl IpcState {
             started_at: Instant::now(),
             logs,
             enroll_lock: Arc::new(tokio::sync::Mutex::new(())),
+            boot: None,
         }
     }
 }
@@ -273,6 +276,34 @@ pub(crate) async fn route(
             (200, json!({ "items": state.logs.snapshot(limit) }))
         }
         ("POST", "/v1/enroll") => enroll(state, body).await,
+        ("POST", "/v1/checks-interval") => {
+            let Some(boot) = &state.boot else {
+                return (503, error_json("unavailable", "boot 流水线未启用"));
+            };
+            match serde_json::from_slice::<serde_json::Value>(body) {
+                Ok(value) => match value.get("interval_secs").and_then(|v| v.as_u64()) {
+                    Some(secs) => {
+                        boot.set_checks_interval(secs);
+                        (
+                            200,
+                            json!({ "ok": true, "interval_secs": boot.monitor_interval_secs() }),
+                        )
+                    }
+                    None => (400, error_json("bad_request", "缺少 interval_secs")),
+                },
+                Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
+            }
+        }
+        ("GET", "/v1/state") => (
+            200,
+            state
+                .boot
+                .as_ref()
+                .map(|boot| boot.state_json())
+                .unwrap_or_else(|| {
+                    json!({ "overall": "unavailable", "config_sufficient": false, "phases": [] })
+                }),
+        ),
         _ => (
             404,
             error_json("not_found", format!("未知 IPC 端点: {method} {path}")),

@@ -2,6 +2,7 @@
 
 #![deny(unsafe_code)]
 
+mod boot;
 mod caps;
 mod cli;
 mod ipc;
@@ -41,7 +42,10 @@ enum Mode {
     /// 常驻守护：全量初始化 + 长驻运行
     Serve(serve::ServeOpts),
     /// 单次交互工具：最小初始化 + 即走即退
-    Cli { #[command(subcommand)] cmd: cli::CliCmd },
+    Cli {
+        #[command(subcommand)]
+        cmd: cli::CliCmd,
+    },
 }
 
 pub fn block_on<F: std::future::Future>(future: F) -> F::Output {

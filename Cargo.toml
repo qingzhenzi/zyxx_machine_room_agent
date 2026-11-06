@@ -2,6 +2,10 @@
 resolver = "3"
 members = [
     "apps/qe-agent",
+    "crates/qe-nftables",
+    "crates/platform-health",
+    "crates/platform-diagnose",
+    "crates/lan_video",
     "crates/qe-node-agent",
     "crates/qe-room-agent",
     "crates/qe-device-pki-client",

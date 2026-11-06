@@ -42,4 +42,4 @@ pub use presign::{
 };
 pub use pull::{HttpObjectFetcher, ObjectFetcher, PullRequest, PulledImage, Puller};
 pub use report::{CompletedPayload, MtlsReporter, Phase, ProgressEvent, ProgressPayload, Reporter};
-pub use run::{run, run_with_config};
+pub use run::{on_remote_policy_applied, run, run_with_config};

@@ -21,6 +21,26 @@ use tracing_subscriber::EnvFilter;
 /// 单次拉取的下行消息条数。
 const DOWNLINK_BATCH: i64 = 20;
 
+/// 远端策略应用后的通知钩子（`qe-agent` 用来联动 boot 周期检查等）。
+///
+/// 用进程级 `OnceLock` 注册而非改 `AgentConfig`（其 derive `Eq` 容不下闭包）。
+/// 独立二进制入口不注册，钩子为空时零开销。
+type RemotePolicyHook = Arc<dyn Fn(u64) + Send + Sync>;
+static REMOTE_POLICY_HOOK: std::sync::OnceLock<RemotePolicyHook> = std::sync::OnceLock::new();
+
+/// 注册远端策略应用通知（参数：新的 `telemetry_full_interval_secs`，
+/// 即"周期性深度检查"节奏；boot 周期检查直接复用它作为复检间隔）。
+/// 进程生命周期内只生效一次。
+pub fn on_remote_policy_applied(hook: impl Fn(u64) + Send + Sync + 'static) {
+    let _ = REMOTE_POLICY_HOOK.set(Arc::new(hook));
+}
+
+fn notify_remote_policy(full_interval_secs: u64) {
+    if let Some(hook) = REMOTE_POLICY_HOOK.get() {
+        hook(full_interval_secs);
+    }
+}
+
 /// 从进程环境读取配置并运行（独立二进制入口）。
 pub async fn run() -> Result<()> {
     let config = AgentConfig::from_env().context("读取 agent 配置失败")?;
@@ -225,7 +245,10 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
             let runtime_policy = Arc::clone(&runtime_policy);
             async move {
                 match policy::handle_config_update(&message.payload, &runtime_policy) {
-                    Ok(_change) => Ok(()),
+                    Ok(change) => {
+                        notify_remote_policy(change.current.telemetry_full_interval_secs);
+                        Ok(())
+                    }
                     Err(error) => {
                         error!(
                             id = message.id,
