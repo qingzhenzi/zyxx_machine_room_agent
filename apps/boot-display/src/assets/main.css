@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  font-family: 'Inter', 'SF Pro Text', ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #0c0e11;
+  color: #eef1f5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+@keyframes slide {
+  0% {
+    left: -33%;
+  }
+  100% {
+    left: 100%;
+  }
+}
