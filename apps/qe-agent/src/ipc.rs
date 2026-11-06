@@ -282,12 +282,25 @@ pub(crate) async fn route(
 
 fn status_json(state: &IpcState) -> Value {
     let credentials = load_credentials(state);
+    let mut device_id: Option<String> = None;
     let (device_slot, serial, mtls_endpoint) = match &credentials {
-        Some(credentials) => (
-            Some(device_identity_from_creds(credentials)),
-            Some(credentials.serial.clone()),
-            Some(credentials.mtls_endpoint.clone()),
-        ),
+        Some(credentials) => {
+            // 新证书 CN=device_id（UUID）；旧证书 CN=slot。
+            let cn = Credentials::extract_cn_from_cert_pem(&credentials.cert_pem).ok();
+            let slot = match cn.as_deref() {
+                Some(cn) if uuid::Uuid::parse_str(cn).is_ok() => {
+                    device_id = Some(cn.to_owned());
+                    Some(credentials.device_slot.clone())
+                }
+                Some(cn) => Some(cn.to_owned()),
+                None => Some(credentials.device_slot.clone()),
+            };
+            (
+                slot,
+                Some(credentials.serial.clone()),
+                Some(credentials.mtls_endpoint.clone()),
+            )
+        }
         None => (
             state.slot.clone(),
             None,
@@ -304,6 +317,7 @@ fn status_json(state: &IpcState) -> Value {
         "roles": state.roles,
         "report_mode": state.report_mode,
         "enrolled": credentials.is_some(),
+        "device_id": device_id,
         "device_slot": device_slot,
         "serial": serial,
         "mtls_endpoint": mtls_endpoint,
@@ -414,11 +428,6 @@ fn load_credentials(state: &IpcState) -> Option<Credentials> {
         }
     };
     Credentials::load(&dir).ok()
-}
-
-fn device_identity_from_creds(creds: &Credentials) -> String {
-    Credentials::extract_cn_from_cert_pem(&creds.cert_pem)
-        .unwrap_or_else(|_| creds.device_slot.clone())
 }
 
 fn error_json(code: &str, message: impl Into<String>) -> Value {

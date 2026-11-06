@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/qe-agent",
+    "apps/qe-agent",
     "crates/qe-node-agent",
     "crates/qe-room-agent",
     "crates/qe-device-pki-client",

@@ -144,7 +144,7 @@ QE_AGENT_IPC_SOCKET=/tmp/qe-agent-dev.sock pnpm tauri dev   # 在 agent-client �
   `cache_max_bytes`；遥测：`telemetry_fast_interval_secs` / `telemetry_full_interval_secs`）
   优先级：内置默认 < 本机配置文件 < 显式 env < 服务端
   （global → area → room → device，device 覆盖最后生效）；
-- 具体字段与范围见 [qe-node-agent 配置](../qe-node-agent/README.md#配置) 与
+- 具体字段与范围见 [qe-node-agent 配置](../../crates/qe-node-agent/README.md#配置) 与
   [machine-telemetry.md](../../../room_node/room_node_backend/docs/machine-telemetry.md)。
 
 ---

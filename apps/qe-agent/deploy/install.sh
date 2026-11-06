@@ -3,7 +3,7 @@
 #
 # 用法：
 #   cargo build -p qe-agent --release
-#   sudo bash crates/agent/deploy/install.sh [target/release/qe-agent]
+#   sudo bash apps/qe-agent/deploy/install.sh [target/release/qe-agent]
 #
 # 只做幂等安装：复制二进制、创建 qe-agent 组、安装 systemd 单元与 /etc/qe-agent.env
 # 模板（已存在则保留），不自动 enable/start、不修改业务数据。

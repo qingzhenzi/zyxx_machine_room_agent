@@ -38,7 +38,7 @@ futures-util = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
-qe-device-pki = { path = "../../../room_node/room_node_backend/crates/device-pki" }
+qe-device-pki = { path = "../../../room_node/crates/device-pki" }
 rcgen = "0.13"
 time = "0.3"
 base64 = "0.22"

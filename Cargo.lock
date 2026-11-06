@@ -3738,6 +3738,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing-subscriber",
+ "uuid",
  "virt-core",
  "virt-crate",
  "virt-libvirt",
@@ -5898,6 +5899,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

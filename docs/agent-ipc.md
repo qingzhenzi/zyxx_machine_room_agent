@@ -1,7 +1,7 @@
 # qe-agent 本机 IPC（GUI ↔ daemon）
 
 > 状态：**P3 已完成**（daemon 侧 IPC + agent-client 接线均验收）。
-> 实现代码：`crates/agent/src/{ipc.rs,logging.rs}`；GUI 侧 `agent-client/src-tauri/src/ipc.rs` +
+> 实现代码：`apps/qe-agent/src/{ipc.rs,logging.rs}`；GUI 侧 `agent-client/src-tauri/src/ipc.rs` +
 > `src/lib/ipc.ts` / `src/stores/agent.ts`。协议变更时同步更新两侧。
 >
 > 已验收：daemon 单测（含 UDS 集成测试）、agent-client `pnpm check`（30 tests）与

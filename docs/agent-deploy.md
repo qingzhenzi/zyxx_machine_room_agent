@@ -29,7 +29,7 @@ cd /path/to/room_node_backend
 cargo build -p qe-agent --release
 
 # 幂等安装（复制二进制 + 建组 + 单元 + env 模板；不会自动 enable）
-sudo bash crates/agent/deploy/install.sh
+sudo bash apps/qe-agent/deploy/install.sh
 sudoedit /etc/qe-agent.env      # 填 DEVICE_PKI_MTLS_URL / DEVICE_SLOT / DEVICE_DATA_DIR
 ```
 

@@ -12,7 +12,7 @@ authors.workspace = true
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 qe-device-pki-client = { path = "../qe-device-pki-client" }
-qe-domain = { path = "../../../room_node/room_node_backend/crates/domain" }
+qe-domain = { path = "../../../room_node/crates/domain" }
 # 守护进程内能力库：安全核查 / 容器 / 虚拟化，进程内直调，不再 spawn 外部进程。
 qeaudit = { path = "../qeaudit" }
 qe-container = { path = "../qe-container" }

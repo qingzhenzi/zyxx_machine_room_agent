@@ -6,7 +6,7 @@
 # 安装（workspace 根目录）：
 #   cargo build -p qe-agent --release
 #   sudo install -m 0755 target/release/qe-agent /usr/local/bin/qe-agent
-#   sudo install -m 0644 crates/agent/deploy/qe-agent.service.example \
+#   sudo install -m 0644 apps/qe-agent/deploy/qe-agent.service.example \
 #        /etc/systemd/system/qe-agent.service
 #   sudo install -m 0600 /dev/null /etc/qe-agent.env    # 写入环境变量
 #   sudo systemctl daemon-reload

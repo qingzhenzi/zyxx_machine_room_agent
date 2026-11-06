@@ -135,14 +135,21 @@ fn status_creds(slot: Option<&str>, data_dir: &Path) -> Result<()> {
     };
     let (creds, cn) = Credentials::load_with_cn(&dir)?;
     println!("凭证目录 : {}", dir.display());
-    println!("slot     : {}", cn);
-    println!("serial   : {}", creds.serial);
-    println!("mTLS     : {}", creds.mtls_endpoint);
+    // CN 可能是 device_id（UUID）或旧的 slot
+    if uuid::Uuid::parse_str(&cn).is_ok() {
+        println!("device_id : {}", cn);
+        println!("slot      : {}", creds.device_slot);
+    } else {
+        println!("slot      : {}", cn);
+        println!("device_id : 未知（旧证书）");
+    }
+    println!("serial    : {}", creds.serial);
+    println!("mTLS      : {}", creds.mtls_endpoint);
     match creds.verify() {
-        Ok(()) => println!("自检     : ok"),
+        Ok(()) => println!("自检      : ok"),
         Err(issue) => {
-            println!("自检     : {issue}");
-            println!("建议     : {}", issue.advice());
+            println!("自检      : {issue}");
+            println!("建议      : {}", issue.advice());
         }
     }
     Ok(())

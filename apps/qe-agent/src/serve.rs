@@ -1,7 +1,6 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
 
 use crate::ipc;
