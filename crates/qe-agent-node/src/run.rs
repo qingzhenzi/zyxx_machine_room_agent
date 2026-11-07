@@ -272,8 +272,9 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
     // 6.1b VM 远程控制（仅 node / both 角色；`--role machine` 不调用本函数，故不会注册，
     // 避免无 libvirt 权限的机器注册 VM 命令）。
     {
-        let executor: Arc<dyn crate::vm_control::VmExecutor> =
-            Arc::new(crate::vm_control::LibvirtExecutor);
+        let executor: Arc<dyn crate::vm_control::VmExecutor> = Arc::new(
+            crate::vm_control::LibvirtExecutor::new(config.data_dir.clone()),
+        );
         let command_transport = Arc::new(transport_config(&credentials, &config));
         dispatcher.subscribe("vm.command", move |message: DownlinkMessage| {
             let executor = Arc::clone(&executor);

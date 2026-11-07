@@ -94,6 +94,41 @@ pub enum VmCmd {
 
     /// 打开串口控制台（等价 `virsh console`，需要交互终端）
     Console { name: String },
+
+    /// qcow2 内部快照（要求虚拟机已关机）
+    Snapshot {
+        #[command(subcommand)]
+        cmd: SnapshotCmd,
+    },
+
+    /// 查看虚拟机磁盘的 backing chain（底包 → 差分盘）
+    DiskInfo { name: String },
+
+    /// 导出完整 qcow2 到 <data-dir>/exports/（要求虚拟机已关机）
+    Export {
+        name: String,
+        /// 目标格式（阶段 1.5 只支持 qcow2）
+        #[arg(long, default_value = "qcow2")]
+        format: String,
+    },
+}
+
+/// `qe-agent vm snapshot ...`
+#[derive(Debug, Subcommand)]
+pub enum SnapshotCmd {
+    /// 创建快照
+    Create {
+        name: String,
+        tag: String,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// 列出快照
+    List { name: String },
+    /// 恢复到快照
+    Restore { name: String, tag: String },
+    /// 删除快照
+    Delete { name: String, tag: String },
 }
 
 /// `vm create` 的参数。
@@ -129,6 +164,14 @@ pub struct CreateArgs {
     /// 直通的物理 GPU PCI 地址（dddd:bb:dd.f），可重复
     #[arg(long = "gpu", value_name = "PCI")]
     gpu: Vec<String>,
+
+    /// 底包：libvirt 存储池卷名（与 --base-image 二选一；差分盘 backing file）
+    #[arg(long = "base-volume", value_name = "VOL")]
+    base_volume: Option<String>,
+
+    /// 底包：宿主机上的 qcow2 文件路径（与 --base-volume 二选一）
+    #[arg(long = "base-image", value_name = "PATH")]
+    base_image: Option<PathBuf>,
 
     /// 图形控制台协议
     #[arg(long, value_enum, default_value = "vnc")]
@@ -241,7 +284,61 @@ pub fn run(args: VmArgs, data_dir: &Path) -> Result<()> {
         VmCmd::Vnc { name } => vnc(&hv, &name),
         VmCmd::Screenshot { name, out } => screenshot(&hv, &name, out),
         VmCmd::Console { name } => console(&uri, &name),
+        VmCmd::Snapshot { cmd } => snapshot_cmd(&data_dir, Some(uri.as_str()), cmd),
+        VmCmd::DiskInfo { name } => disk_info_cmd(&data_dir, Some(uri.as_str()), &name),
+        VmCmd::Export { name, format } => export_cmd(&data_dir, Some(uri.as_str()), &name, &format),
     }
+}
+
+/// `vm snapshot ...`：qemu-img 内部快照（经 agent 的 vm_control 实现）。
+fn snapshot_cmd(data_dir: &Path, uri: Option<&str>, cmd: SnapshotCmd) -> Result<()> {
+    use qe_agent_node::vm_control::{LibvirtExecutor, SnapshotAction, VmExecutor};
+    let executor = LibvirtExecutor::with_uri(data_dir, uri.map(str::to_owned));
+    let data = match cmd {
+        SnapshotCmd::Create {
+            name,
+            tag,
+            description,
+        } => executor
+            .snapshot(
+                SnapshotAction::Create,
+                &name,
+                Some(&tag),
+                description.as_deref(),
+            )
+            .context("创建快照失败")?,
+        SnapshotCmd::List { name } => executor
+            .snapshot(SnapshotAction::List, &name, None, None)
+            .context("列出快照失败")?,
+        SnapshotCmd::Restore { name, tag } => executor
+            .snapshot(SnapshotAction::Restore, &name, Some(&tag), None)
+            .context("恢复快照失败")?,
+        SnapshotCmd::Delete { name, tag } => executor
+            .snapshot(SnapshotAction::Delete, &name, Some(&tag), None)
+            .context("删除快照失败")?,
+    };
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
+}
+
+/// `vm disk-info`：打印 backing chain。
+fn disk_info_cmd(data_dir: &Path, uri: Option<&str>, name: &str) -> Result<()> {
+    use qe_agent_node::vm_control::{LibvirtExecutor, VmExecutor};
+    let data = LibvirtExecutor::with_uri(data_dir, uri.map(str::to_owned))
+        .disk_info(name)
+        .with_context(|| format!("读取 {name} 磁盘信息失败"))?;
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
+}
+
+/// `vm export`：导出扁平 qcow2 + sha256。
+fn export_cmd(data_dir: &Path, uri: Option<&str>, name: &str, format: &str) -> Result<()> {
+    use qe_agent_node::vm_control::{LibvirtExecutor, VmExecutor};
+    let data = LibvirtExecutor::with_uri(data_dir, uri.map(str::to_owned))
+        .export(name, format)
+        .with_context(|| format!("导出 {name} 磁盘失败"))?;
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 /// 连接 libvirt：显式 URI 优先，否则 system → session 回落。
@@ -379,11 +476,42 @@ fn create_vm(hv: &Backend, args: CreateArgs, data_dir: &Path) -> Result<()> {
         args.disk.clone()
     };
 
+    // 底包 → 差分盘：--base-volume（libvirt 存储池卷）或 --base-image（qcow2 路径）
+    let base_image_path = args
+        .base_image
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
+    let base = qe_agent_node::vm_control::resolve_base_path(
+        args.base_volume.as_deref(),
+        base_image_path.as_deref(),
+    )
+    .context("解析底包失败（--base-volume 需要 libvirt 卷，--base-image 需要存在的 qcow2）")?;
+    if base.is_some() && disks.len() > 1 {
+        bail!("底包模式只支持单块磁盘（--disk 最多一个）");
+    }
+    if let Some(base) = &base {
+        println!("底包：{}（差分盘只保存增量）", base.display());
+    }
+
     let size = parse_size(&args.disk_size).context("解析 --disk-size 失败")?;
     let mut disk_paths = Vec::with_capacity(disks.len());
     for disk in &disks {
         if disk.exists() {
             println!("使用已有磁盘 {}", disk.display());
+        } else if let Some(base) = &base {
+            qe_agent_node::vm_control::create_disk_with_size(disk, Some(base), &args.disk_size)
+                .with_context(|| {
+                    format!(
+                        "创建差分盘 {} 失败（qemu-img；可设 QE_QEMU_IMG 指定路径）",
+                        disk.display()
+                    )
+                })?;
+            println!(
+                "已创建差分盘 {}（backing={}，大小 {}）",
+                disk.display(),
+                base.display(),
+                args.disk_size
+            );
         } else {
             let format = DiskFormat::for_path(disk);
             create_disk(disk, size, format).with_context(|| {
