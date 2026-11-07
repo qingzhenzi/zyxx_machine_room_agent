@@ -2,7 +2,7 @@
 //!
 //! `qeaudit`（安全核查）、`qe-container`（容器）、`virt-*`（虚拟化）、
 //! `qep2p`（P2P 传输）都以库形式并入守护进程，进程内直接使用；
-//! 这里给出各能力的可用性快照（`qe-agent status` 末尾展示），
+//! 这里给出各能力的可用性快照（`qe-agent cli status` 末尾展示），
 //! 供运维确认链路是否就绪。
 //!
 //! 遥测路径上的进程内调用见 `qe-agent-telemetry::external`（安全/容器/虚机采集），
@@ -33,7 +33,7 @@ pub fn probe(data_dir: &Path) -> Vec<CapStatus> {
     ]
 }
 
-/// 打印能力快照（`qe-agent status` 用）。
+/// 打印能力快照（`qe-agent cli status` 用）。
 pub fn print(data_dir: &Path) {
     println!();
     println!("守护进程能力（库内直调）:");

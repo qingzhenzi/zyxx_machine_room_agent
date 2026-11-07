@@ -1,7 +1,7 @@
 # QEStudio 统一 agent（qe-agent）systemd 单元示例。
 #
 # 单服务、单进程同时跑 node + machine 两个角色，并暴露本机 IPC 给 GUI：
-#   qe-agent run --role both --ipc-socket /run/qe-agent/agent.sock
+#   qe-agent serve --role both --ipc-socket /run/qe-agent/agent.sock
 #
 # 安装（workspace 根目录）：
 #   cargo build -p qe-agent --release
@@ -32,7 +32,7 @@ Group=qe-agent
 # 创建 /run/qe-agent（0750，root:qe-agent），IPC socket 由 agent 自己设为 0660。
 RuntimeDirectory=qe-agent
 RuntimeDirectoryMode=0750
-ExecStart=/usr/local/bin/qe-agent run --role both --ipc-socket /run/qe-agent/agent.sock
+ExecStart=/usr/local/bin/qe-agent serve --role both --ipc-socket /run/qe-agent/agent.sock
 Restart=on-failure
 RestartSec=5
 # 停止时给 image.pull 当前任务一点收尾时间（未送达消息留在 outbox，下次启动重放）。

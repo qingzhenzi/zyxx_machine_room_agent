@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 安装 qe-agent daemon（Linux，需要 root）。
 #
+# 更完整的安装（含 boot-display 展示层）见 workspace 根目录 scripts/install-agent.sh；
+# 本脚本保留为最小安装路径（qe-agent + 单元 + env 模板）。
+#
 # 用法：
 #   cargo build -p qe-agent --release
 #   sudo bash apps/qe-agent/deploy/install.sh [target/release/qe-agent]
@@ -51,7 +54,7 @@ systemctl daemon-reload
 echo
 echo "下一步："
 echo "  1. sudoedit /etc/qe-agent.env"
-echo "  2. sudo /usr/local/bin/qe-agent enroll '<注册链接>' --trust"
-echo "  3. sudo /usr/local/bin/qe-agent status"
+echo "  2. sudo /usr/local/bin/qe-agent cli enroll '<注册链接>' --trust"
+echo "  3. sudo /usr/local/bin/qe-agent cli status"
 echo "  4. sudo systemctl enable --now qe-agent"
 echo "  5. curl --unix-socket /run/qe-agent/agent.sock http://localhost/v1/status"

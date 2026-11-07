@@ -1,19 +1,24 @@
-# qe-room-agent systemd unit 示例。
+# qe-agent（machine 遥测角色）systemd unit 示例 —— 历史文件名兼容保留。
 #
-# 安装（workspace 根目录）：
-#   sudo install -m 0755 target/release/qe-room-agent /usr/local/bin/qe-room-agent
-#   sudo install -m 0644 crates/room-agent/deploy/room-agent.service.example \
-#        /etc/systemd/system/qe-room-agent.service
-#   sudo install -m 0600 /dev/null /etc/qe-room-agent.env   # 写入端点/槽位等配置
-#   sudo systemctl daemon-reload && sudo systemctl enable --now qe-room-agent
+# 推荐直接用统一安装脚本（workspace 根目录，root）：
+#   cargo build -p qe-agent --release
+#   sudo bash scripts/install-agent.sh
+# 或手动安装：
+#   sudo install -m 0755 target/release/qe-agent /usr/local/bin/qe-agent
+#   sudo install -m 0644 apps/qe-agent/deploy/qe-agent.service.example \
+#        /etc/systemd/system/qe-agent.service
+#   sudo install -m 0600 /dev/null /etc/qe-agent.env   # 写入端点/槽位等配置
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qe-agent
 #
-# 默认 mTLS：先用 `qe-agent enroll <注册链接>` 把设备证书写入
+# 默认 mTLS：先用 `qe-agent cli enroll <注册链接> --trust` 把设备证书写入
 # DEVICE_DATA_DIR/creds/<DEVICE_SLOT>（默认 /var/lib/qe-agent 需自行创建并 0700）。
 # 兼容 bearer 模式：把 REPORT_MODE=bearer + MACHINE_AGENT_TOKEN 放进 0600 的
 # EnvironmentFile，不要直接写进 unit（否则 systemctl cat 可见）。
+#
+# 单服务双角色（推荐）：把 ExecStart 的 --role machine 改为 --role both。
 
 [Unit]
-Description=QEStudio room agent (machine telemetry)
+Description=QEStudio agent (machine telemetry)
 Documentation=https://github.com/QEStudio/room_node_backend/blob/main/docs/machine-telemetry.md
 Wants=network-online.target
 After=network-online.target
@@ -22,17 +27,22 @@ After=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/qe-room-agent.env
+EnvironmentFile=-/etc/qe-agent.env
 Environment=RUST_LOG=info
 # 证书目录（与 EnvironmentFile 中的 DEVICE_DATA_DIR 保持一致）：
 # ReadWritePaths=/var/lib/qe-agent
 # 采集 docker.sock / virsh qemu:///system / hwmon / machine-id 通常需要 root。
-# 只采内置指标时可改为专用用户+ docker 组，并用 ROOM_AGENT_DISABLE_* 关掉多余工具。
+# 只采内置指标时可改为专用用户 + docker 组，并用 ROOM_AGENT_DISABLE_* 关掉多余工具。
 User=root
-ExecStart=/usr/local/bin/qe-room-agent
+Group=qe-agent
+# RuntimeDirectory 供 --ipc-socket 使用（/run/qe-agent/agent.sock，GUI 可读）。
+RuntimeDirectory=qe-agent
+RuntimeDirectoryMode=0750
+# 只遥测：--role machine；单服务双角色改成 --role both。
+ExecStart=/usr/local/bin/qe-agent serve --role machine --ipc-socket /run/qe-agent/agent.sock
 Restart=on-failure
 RestartSec=10
-# 退出码：0 成功；--once 上报失败为 1；配置/参数错误为 2（daemon 模式不会因单轮失败退出）。
+# 退出码：0 成功；配置/参数错误为 2（守护模式不会因单轮上报失败退出）。
 
 # 基础加固（agent 只读系统信息、不写业务数据）。
 NoNewPrivileges=yes

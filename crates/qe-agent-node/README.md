@@ -1,5 +1,6 @@
-> **已并入统一入口（P4 退场）**：新部署请用 [`qe-agent`](../agent/README.md) 的
-> `qe-agent run --role node`；本 crate 作为库实现继续维护。
+> **已并入统一入口（P4 已完成）**：本 crate 已无独立二进制（`src/main.rs` 已移除），
+> 仅作为库维护；部署运行统一用 [`qe-agent`](../../apps/qe-agent/README.md) 的
+> `qe-agent serve --role node`（或 `--role both`），安装用 `sudo bash scripts/install-agent.sh`。
 
 # qe-agent-node（房间节点 agent，P2）
 
@@ -70,12 +71,18 @@ device-pki 消息只承载控制信令与状态。设计契约见
 
 ## 运行
 
+本 crate 已无独立二进制，统一由 `qe-agent` 入口加载：
+
 ```bash
-cargo build -p qe-agent-node
+# workspace 根目录
+cargo build -p qe-agent --release
 DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 \
   DEVICE_DATA_DIR=/var/lib/qe-agent RUST_LOG=info \
-  ./target/debug/qe-agent-node
+  qe-agent serve --role node
 ```
+
+生产用 `sudo bash scripts/install-agent.sh` 安装 systemd 单元；单服务推荐
+`qe-agent serve --role both --ipc-socket /run/qe-agent/agent.sock`（node + machine 同进程）。
 
 > 生产环境必须为 device-pki 服务端与 qe-api 配置相同的 `STORAGE_SIGNING_KEY_BASE64`，
 > 否则重启后 manifest 公钥变化，已签清单无法再验签。

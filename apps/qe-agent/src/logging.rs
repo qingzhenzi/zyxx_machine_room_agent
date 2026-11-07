@@ -1,6 +1,6 @@
 //! daemon 日志环形缓冲：tracing 输出同时写 stderr 与内存，供本机 IPC `/v1/logs` 读取。
 //!
-//! 只在 `qe-agent run --ipc-socket ...` 时安装；未启用 IPC 时各角色沿用自己原来的
+//! 只在 `qe-agent serve --ipc-socket ...` 时安装；未启用 IPC 时各角色沿用自己原来的
 //! `init_tracing`（行为不变）。安装后角色的 `try_init` 会静默失败，日志统一走这里。
 
 use std::collections::VecDeque;

@@ -21,12 +21,13 @@
 单 systemd 服务、单进程同时跑两个角色：
 
 ```bash
-qe-agent run --role both --ipc-socket /run/qe-agent/agent.sock
+qe-agent serve --role both --ipc-socket /run/qe-agent/agent.sock
 ```
 
 - `--role node` / `--role machine` 仍可单独运行（有各自的 `--ipc-socket`，但推荐 `both`）；
 - `--role both` 里 machine 跑在独立线程、node 跑在主线程（tokio），共用同一张证书与数据目录；
-- `--ipc-socket` 只在守护模式生效；`--once/--print` 不启动 IPC（进程会退出）。
+- `--ipc-socket` 只在 `serve` 守护模式生效；旧二进制的 `--once/--print` 已退场，
+  统一入口不提供一次性模式。
 
 ## 3. 传输
 

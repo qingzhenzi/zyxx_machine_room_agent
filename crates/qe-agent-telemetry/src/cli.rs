@@ -29,15 +29,15 @@ qe-agent-telemetry —— QEStudio 房间机器遥测 agent
 必填环境变量（mtls 模式，默认）:
   DEVICE_SLOT            设备槽位（也可用 --device-slot 传入）
   DEVICE_PKI_MTLS_URL    device-pki mTLS 端点，如 https://node.example.com:4441
-  （证书从 <DEVICE_DATA_DIR>/creds/<DEVICE_SLOT> 读取；先用 qe-agent enroll 注册）
+  （证书从 <DEVICE_DATA_DIR>/creds/<DEVICE_SLOT> 读取；先用 qe-agent cli enroll 注册）
 
 必填环境变量（bearer 模式，兼容旧部署）:
   MACHINE_AGENT_TOKEN    上报 Bearer token（--print 模式下可省略）
   MACHINE_API_BASE       qe-api 基础地址（默认 http://127.0.0.1:8080/api/v1）
 
-示例:
-  DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 qe-agent-telemetry --once --print
-  REPORT_MODE=bearer MACHINE_AGENT_TOKEN=fleet-token DEVICE_SLOT=room-101 qe-agent-telemetry --once
+示例（统一入口）:
+  DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 qe-agent serve --role machine
+  REPORT_MODE=bearer MACHINE_AGENT_TOKEN=fleet-token DEVICE_SLOT=room-101 qe-agent serve --role machine
 ";
 
 /// 解析后的命令行选项。

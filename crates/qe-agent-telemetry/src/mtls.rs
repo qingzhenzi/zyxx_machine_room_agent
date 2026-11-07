@@ -1,7 +1,7 @@
 //! mTLS 支持：设备凭证加载、blocking 上报客户端构建、`TransportConfig` 构造。
 //!
 //! 凭证目录布局与 `qe-device-pki-client` 完全一致：`<DEVICE_DATA_DIR>/creds/<slot>`，
-//! 由 `qe-agent enroll <注册链接>` 写入（`cert.pem` / `key.pem` / `ca-chain.pem` /
+//! 由 `qe-agent cli enroll <注册链接>` 写入（`cert.pem` / `key.pem` / `ca-chain.pem` /
 //! `meta.json`）。端点以环境变量 `DEVICE_PKI_MTLS_URL` 为准 —— 证书 `meta.json`
 //! 里记录的是注册时的地址，可能已过时。
 
@@ -31,7 +31,7 @@ pub fn load_credentials(config: &Config) -> Result<Credentials> {
     let dir = config.creds_dir()?;
     let mut credentials = Credentials::load(&dir).with_context(|| {
         format!(
-            "加载设备凭证失败: {}（该槽位是否已用 qe-agent enroll 注册？）",
+            "加载设备凭证失败: {}（该槽位是否已用 qe-agent cli enroll 注册？）",
             dir.display()
         )
     })?;

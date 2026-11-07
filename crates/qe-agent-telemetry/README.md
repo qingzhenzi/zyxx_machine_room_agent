@@ -1,5 +1,6 @@
-> **已并入统一入口（P4 退场）**：新部署请用 [`qe-agent`](../agent/README.md) 的
-> `qe-agent run --role machine`（或 `--role both`）；本 crate 作为库实现继续维护。
+> **已并入统一入口（P4 已完成）**：本 crate 已无独立二进制（`src/main.rs` 已移除），
+> 仅作为库维护；部署运行统一用 [`qe-agent`](../../apps/qe-agent/README.md) 的
+> `qe-agent serve --role machine`（或 `--role both`），安装用 `sudo bash scripts/install-agent.sh`。
 
 # qe-agent-telemetry（房间机器遥测 agent，v1.1）
 
@@ -8,7 +9,7 @@
 platform-health / platform-diagnose 为可选外部工具）的结果，
 组装成契约 JSON 后上报给服务端。
 
-契约以 [`machine-telemetry.md`](../../../room_node/room_node_backend/docs/machine-telemetry.md) **v1.1** 为准：
+契约以 [`machine-telemetry.md`](../../../room_node/docs/machine-telemetry.md) **v1.1** 为准：
 
 ```text
 room-agent（每个房间机器）
@@ -25,7 +26,7 @@ room-agent（每个房间机器）
 
 设计原则：
 
-- **默认 mTLS**：身份来自设备证书（`qe-agent enroll` 写入
+- **默认 mTLS**：身份来自设备证书（`qe-agent cli enroll` 写入
   `<DEVICE_DATA_DIR>/creds/<DEVICE_SLOT>`），不再依赖 fleet token；
   `REPORT_MODE=bearer` 保留旧上报路径；
 - **两档采集**：fast 只跑内置采集，full 才做能力采集（安全/容器/虚机/平台工具），
@@ -36,17 +37,21 @@ room-agent（每个房间机器）
   `sections.agent.tools`，不影响整体上报；
 - **安全扫描即时回传**：qeaudit 按独立间隔扫描，扫描完成立即经 mTLS 回传 full 快照，
   安全发现不等下一个 full 周期；
-- **采集与 payload 组装不触碰网络**：`--once --print` 可在本机直接排查；
-- **退出码可断言**：`--once` 成功 0、失败非 0，方便 systemd/CI。
+- **采集与 payload 组装不触碰网络**：本机排查看 `journalctl -u qe-agent` 与 IPC `/v1/status`；
+- **错误可观测**：库级采集返回 `Result`，由 `qe-agent serve` 统一处理——常驻模式
+  不会因单轮失败退出，systemd 不需要为单次上报失败重启。
 
 ---
 
 ## 1. 构建与安装
 
+本 crate 是 **lib-only**（无独立二进制）。部署统一入口（含 systemd 单元与可选
+boot-display 展示层）：
+
 ```bash
 # workspace 根目录
-cargo build -p qe-agent-telemetry --release
-sudo install -m 0755 target/release/qe-agent-telemetry /usr/local/bin/qe-agent-telemetry
+cargo build -p qe-agent --release
+sudo bash scripts/install-agent.sh
 ```
 
 要求 Rust 1.88+（workspace `rust-version`；edition 2024）。
@@ -115,36 +120,33 @@ full 周期。缓存与 full 档共享：full 档刚刷新过则该次规则触�
 
 ## 3. 快速开始
 
+本 crate 是库，运行统一走 `qe-agent` 入口（旧独立二进制的 `--once` / `--print`
+已随 P4 退场；一次性采集调试见本节末尾）。
+
 ```bash
-# 只采集并打印 payload（不发请求；--print 模式下可省略 token）
-./target/debug/qe-agent-telemetry --once --print --device-slot room-101
+# 常驻遥测（systemd 用；推荐先跑 scripts/install-agent.sh 装成服务）
+DEVICE_PKI_MTLS_URL=https://qe.example.com:4441 \
+DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
+  qe-agent serve --role machine
+
+# 单服务双角色（镜像 + 遥测，推荐）
+  qe-agent serve --role both --ipc-socket /run/qe-agent/agent.sock
 
 # 本机指向外部工具的 release 二进制（platform-health / diagnose 仍是外部命令；
 # qeaudit 默认进程内库直调，这里设 QEAUDIT_BIN 只为验证 CLI 回退路径）
 PLATFORM_HEALTH_BIN=/home/qingzhenzi/Projects/QEStudio/common/platform-health/target/release/platform-health \
 PLATFORM_DIAGNOSE_BIN=/home/qingzhenzi/Projects/QEStudio/common/platform-diagnose/target/release/platform-diagnose \
-QEAUDIT_BIN=/home/qingzhenzi/Projects/QEStudio/room_agent/target/release/qeaudit \
-./target/debug/qe-agent-telemetry --once --print --device-slot room-101 | jq '.sections.agent.tools'
-
-# 真实上报一轮（mTLS，需先 qe-agent enroll 拿证书；失败非 0）
-DEVICE_PKI_MTLS_URL=https://qe.example.com:4441 \
-DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
-./target/debug/qe-agent-telemetry --once
+  qe-agent serve --role machine
 
 # 兼容 bearer 模式
-REPORT_MODE=bearer \
-MACHINE_API_BASE=http://127.0.0.1:8080/api/v1 \
+REPORT_MODE=bearer MACHINE_API_BASE=http://127.0.0.1:8080/api/v1 \
 MACHINE_AGENT_TOKEN=<fleet-token> DEVICE_SLOT=room-101 \
-./target/debug/qe-agent-telemetry --once
-
-# daemon（systemd 用；不要在前台验证时乱启动常驻循环）
-DEVICE_PKI_MTLS_URL=https://qe.example.com:4441 \
-DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
-./target/debug/qe-agent-telemetry
+  qe-agent serve --role machine
 ```
 
-`--print` 的 JSON 固定写 stdout；日志固定写 stderr，因此
-`... --print | jq .` 不会被日志污染。
+本机排查：`journalctl -u qe-agent -f` 看采集/上报日志；IPC `GET /v1/status`
+看角色、间隔与能力快照（见 `apps/qe-agent/README.md`）。上报 JSON 里的
+`sections.agent.tools` 仍是定位单项能力采集问题的第一入口。
 
 `sections.agent.tools` 是排查能力采集问题的第一入口：哪一项缺失，看对应
 `error` 是「启动失败 / 超时 / 退出码 / 不是合法 JSON」即可；fast 档里看到
@@ -154,7 +156,7 @@ DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
 
 ## 4. 配置
 
-优先级：**显式 CLI（`--interval` / `--device-slot`）> 环境变量 > 内置默认值**。
+优先级：**显式 CLI（`--fast-interval` / `--full-interval` / `--device-slot`）> 环境变量 > 内置默认值**。
 空白环境变量视同未设置（systemd `Environment=FOO=` 不会静默覆盖默认值）。
 
 | 环境变量 | 默认 | 说明 |
@@ -190,16 +192,17 @@ DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
 
 布尔值接受 `1/true/yes/on/y` 与 `0/false/no/off/n`（大小写不敏感）。
 
+> CLI 参数由统一入口 `qe-agent serve` 提供（本 crate 不再暴露独立 CLI）：
+
 | CLI 参数 | 说明 |
 | --- | --- |
-| `--once` | 采集/上报**一份 full** 后退出；成功 0，失败 1，配置/参数错误 2 |
-| `--print` | 把 payload 打印到 stdout，不发送（daemon 下 fast/full 分别打印） |
+| `--role <node\|machine\|both>` | 角色；遥测用 `machine`，单服务推荐 `both` |
+| `--ipc-socket <PATH>` | 本机 IPC socket（GUI 用） |
 | `--fast-interval <秒>` | 覆盖 fast 档间隔（5..=60） |
 | `--full-interval <秒>` | 覆盖 full 档间隔（60..=3600） |
-| `--interval <秒>` | 旧参数，等价于 `--fast-interval` |
-| `--report-mode <模式>` | `mtls`（默认）/ `bearer` |
+| `--report-mode <mtls\|bearer>` | 上报模式（默认 mtls） |
 | `--device-slot <槽位>` | 覆盖 `DEVICE_SLOT` |
-| `--data-dir <目录>` | 覆盖 `DEVICE_DATA_DIR` |
+| `--data-dir <目录>` | 全局参数，覆盖 `DEVICE_DATA_DIR` |
 | `-h, --help` | 打印用法 |
 
 ### 指向外部工具
@@ -295,37 +298,31 @@ VIRSH_BIN=/usr/bin/virsh
 
 ## 7. systemd
 
-示例 unit 见 [`deploy/room-agent.service.example`](deploy/room-agent.service.example)：
+统一入口示例单元见
+[`apps/qe-agent/deploy/qe-agent.service.example`](../../apps/qe-agent/deploy/qe-agent.service.example)，
+推荐直接执行（workspace 根目录，root）：
 
 ```bash
-sudo install -d -m 0755 /etc/systemd/system
-sudo install -m 0644 deploy/room-agent.service.example /etc/systemd/system/qe-agent-telemetry.service
-sudo install -m 0600 /dev/null /etc/qe-agent-telemetry.env
-sudo tee /etc/qe-agent-telemetry.env >/dev/null <<'EOF'
-REPORT_MODE=mtls
-DEVICE_PKI_MTLS_URL=https://qe.example.com:4441
-DEVICE_SLOT=room-101
-DEVICE_DATA_DIR=/var/lib/qe-agent
-ROOM_AGENT_FAST_INTERVAL_SECS=10
-ROOM_AGENT_FULL_INTERVAL_SECS=300
-PLATFORM_HEALTH_BIN=/opt/qe/bin/platform-health
-PLATFORM_DIAGNOSE_BIN=/opt/qe/bin/platform-diagnose
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable --now qe-agent-telemetry
-journalctl -u qe-agent-telemetry -f
+sudo bash scripts/install-agent.sh          # 安装 qe-agent + systemd + /etc/qe-agent.env
+sudoedit /etc/qe-agent.env                  # DEVICE_PKI_MTLS_URL / DEVICE_SLOT / DEVICE_DATA_DIR
+sudo qe-agent cli enroll '<注册链接>' --trust
+sudo systemctl enable --now qe-agent
+journalctl -u qe-agent -f
 ```
 
-`--print` 不需要证书/token。mTLS 模式下证书由 `qe-agent enroll` 写入
-`DEVICE_DATA_DIR`，unit 只需 `EnvironmentFile` 注入端点与槽位；
-bearer 模式仍用 `EnvironmentFile` 注入 token，避免 token 出现在
-`systemctl cat` / 进程列表里。
+单元默认 `--role both`；只遥测时用 `systemctl edit qe-agent` 把 ExecStart 改为
+`/usr/local/bin/qe-agent serve --role machine --ipc-socket /run/qe-agent/agent.sock`。
+本 crate 目录下的 `deploy/room-agent.service.example` 仅作历史兼容示例。
+
+mTLS 模式下证书由 `qe-agent cli enroll` 写入 `DEVICE_DATA_DIR`，unit 只需
+`EnvironmentFile` 注入端点与槽位；bearer 模式仍用 `EnvironmentFile` 注入 token，
+避免 token 出现在 `systemctl cat` / 进程列表里。
 
 ---
 
 ## 8. 安全说明
 
-- **默认 mTLS（v1.1）**：每台机器持有自己的设备证书（`qe-agent enroll` 签发），
+- **默认 mTLS（v1.1）**：每台机器持有自己的设备证书（`qe-agent cli enroll` 签发），
   服务端 device-pki 从证书 CN/serial 解析身份；证书文件 `0600`，私钥不出机器。
 - **bearer 是兼容路径**：`REPORT_MODE=bearer` 时每台机器持有同一个
   `MACHINE_AGENT_TOKEN`，仅适合内网/过渡期；token 通过 `0600` 的 EnvironmentFile 下发。
@@ -342,7 +339,6 @@ bearer 模式仍用 `EnvironmentFile` 注入 token，避免 token 出现在
 ## 9. 测试
 
 ```bash
-cargo build -p qe-agent-telemetry
 cargo test -p qe-agent-telemetry
 cargo clippy -p qe-agent-telemetry --all-targets -- -D warnings
 ```
@@ -352,8 +348,8 @@ platform-health 健康采纳与回退、外部命令失败/超时/非 0 退出�
 docker/virsh/qeaudit JSON 解析（含进程内 → CLI 回退的键形映射）、配置校验
 （两档间隔/tier/优先级）、mTLS 凭证加载与客户端构建、远端策略解析与应用
 （非法值拒绝）、fast/full payload 形状（tier、skipped 工具）、HTTP 上报
-（本地 mock server 校验 Bearer/body/202/非 2xx），以及二进制级
-`--once --print` 契约 JSON / 退出码集成测试。
+（本地 mock server 校验 Bearer/body/202/非 2xx），以及库级
+`--once --print` 解析 / payload 形状 / 退出码集成测试（`tests/cli_print.rs`，已改为进程内调用）。
 
 ---
 
