@@ -68,7 +68,7 @@ pub fn run(ctx: CliCtx) -> Result<()> {
             wait_secs,
             trust,
         } => block_on(enroll_cmd(&link, wait, wait_secs, trust, &data_dir)),
-        CliCmd::Vm { args } => vm::run(args, &data_dir),
+        CliCmd::Vm { args } => vm::run(args, &data_dir, slot.as_deref()),
         CliCmd::Gpu { cmd } => match cmd {
             GpuCmd::List => crate::gpu::list(),
         },

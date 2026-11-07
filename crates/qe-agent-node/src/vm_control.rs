@@ -40,6 +40,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine as _;
+use qe_device_pki_client::transport::TransportConfig;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -53,6 +54,8 @@ pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(20);
 /// create / export 这类可能搬大文件的命令超时。
 pub const HEAVY_TIMEOUT: Duration = Duration::from_secs(120);
+/// `image.make`（导出 + 分片上传 + register）总超时。
+pub const MAKE_TIMEOUT: Duration = Duration::from_secs(600);
 /// 截图 base64 字符串上限（4 MiB）。
 pub const MAX_SCREENSHOT_BASE64_BYTES: usize = 4 * 1024 * 1024;
 /// 单台 VM 最多直通 GPU 数（与 LoadRules 默认一致）。
@@ -87,6 +90,8 @@ pub enum VmOp {
     DiskInfo,
     #[serde(rename = "export")]
     Export,
+    #[serde(rename = "image.make")]
+    ImageMake,
 }
 
 impl VmOp {
@@ -105,6 +110,7 @@ impl VmOp {
             Self::SnapshotDelete => "snapshot.delete",
             Self::DiskInfo => "disk.info",
             Self::Export => "export",
+            Self::ImageMake => "image.make",
         }
     }
 
@@ -116,6 +122,7 @@ impl VmOp {
         match self {
             Self::Screenshot => SCREENSHOT_TIMEOUT,
             Self::Create | Self::Export => HEAVY_TIMEOUT,
+            Self::ImageMake => MAKE_TIMEOUT,
             _ => COMMAND_TIMEOUT,
         }
     }
@@ -151,6 +158,13 @@ pub struct VmCommandArgs {
     pub gpu: Vec<String>,
     #[serde(default)]
     pub start: Option<bool>,
+    // image.make
+    #[serde(default)]
+    pub vm_name: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub platform: Option<String>,
     // snapshot / export
     #[serde(default)]
     pub snapshot: Option<String>,
@@ -202,6 +216,9 @@ impl VmCommand {
                 if format != "qcow2" {
                     bail!("export 目前只支持 format=qcow2，收到 {format:?}");
                 }
+            }
+            VmOp::ImageMake => {
+                self.image_make_args()?;
             }
             _ => {}
         }
@@ -295,6 +312,75 @@ impl VmCommand {
             start: self.args.start.unwrap_or(false),
         })
     }
+}
+
+impl VmCommand {
+    /// 把 `image.make` 的 args 归一化 + 校验成 [`ImageMakeArgs`]。
+    pub fn image_make_args(&self) -> Result<ImageMakeArgs> {
+        let vm_name = self
+            .args
+            .vm_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("image.make 需要 args.vm_name"))?;
+        validate_vm_name(vm_name)?;
+        let name = self.name();
+        validate_vm_name(name)?;
+        let version = self
+            .args
+            .version
+            .as_deref()
+            .map(str::trim)
+            .filter(|version| !version.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("image.make 需要 args.version"))?;
+        if version.len() > 64
+            || !version.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+')
+            })
+        {
+            bail!("非法 version: {version:?}（允许 [A-Za-z0-9._+-]{{1,64}}）");
+        }
+        let platform = self
+            .args
+            .platform
+            .as_deref()
+            .map(str::trim)
+            .filter(|platform| !platform.is_empty())
+            .unwrap_or("linux/amd64");
+        if platform.len() > 32
+            || !platform.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/')
+            })
+        {
+            bail!("非法 platform: {platform:?}");
+        }
+        let description = clean_optional(self.args.description.as_deref());
+        if let Some(description) = &description
+            && description.len() > 512
+        {
+            bail!("description 超过 512 字符");
+        }
+        Ok(ImageMakeArgs {
+            vm_name: vm_name.to_owned(),
+            name: name.to_owned(),
+            version: version.to_owned(),
+            platform: platform.to_owned(),
+            base_volume: clean_optional(self.args.base_volume.as_deref()),
+            description,
+        })
+    }
+}
+
+/// `image.make` 归一化后的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageMakeArgs {
+    pub vm_name: String,
+    pub name: String,
+    pub version: String,
+    pub platform: String,
+    pub base_volume: Option<String>,
+    pub description: Option<String>,
 }
 
 fn clean_optional(raw: Option<&str>) -> Option<String> {
@@ -399,6 +485,8 @@ pub trait VmExecutor: Send + Sync {
     fn disk_info(&self, name: &str) -> Result<Value>;
     /// 导出完整 qcow2 + sha256（要求域 shut off）。
     fn export(&self, name: &str, format: &str) -> Result<Value>;
+    /// 制作镜像：导出 → 32 MiB 分片 → presign/PUT → register（阻塞实现）。
+    fn image_make(&self, args: &ImageMakeArgs) -> Result<Value>;
 }
 
 /// 生产实现：每条命令独立连接 libvirt（`virt-crate::Backend`），
@@ -408,6 +496,8 @@ pub struct LibvirtExecutor {
     /// 显式 libvirt URI；`None` 时走 system → session 自动探测。
     /// agent 常驻进程可用 `LIBVIRT_URI` 环境变量指定（CLI 也可用 `--uri` 覆盖）。
     uri: Option<String>,
+    /// `image.make` 需要设备证书 mTLS 通道；未配置时该 op 返回明确错误。
+    transport: Option<TransportConfig>,
 }
 
 impl LibvirtExecutor {
@@ -419,7 +509,14 @@ impl LibvirtExecutor {
         Self {
             data_dir: data_dir.into(),
             uri,
+            transport: None,
         }
+    }
+
+    /// 注入 mTLS transport（`image.make` 的 presign/register 用）。
+    pub fn with_transport(mut self, transport: TransportConfig) -> Self {
+        self.transport = Some(transport);
+        self
     }
 
     /// 显式指定 URI（CLI 的 `--uri` / 测试用）。
@@ -436,6 +533,7 @@ impl LibvirtExecutor {
         Self {
             data_dir: data_dir.into(),
             uri,
+            transport: None,
         }
     }
 
@@ -694,6 +792,73 @@ impl VmExecutor for LibvirtExecutor {
             "size_bytes": size_bytes,
         }))
     }
+
+    fn image_make(&self, args: &ImageMakeArgs) -> Result<Value> {
+        self.run_image_make(args)
+    }
+}
+
+impl LibvirtExecutor {
+    /// `image.make`：导出 → 分片上传 → register；任何失败都清理本地导出文件。
+    fn run_image_make(&self, args: &ImageMakeArgs) -> Result<Value> {
+        let transport = self.transport.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("image.make 需要设备 mTLS transport（agent 未配置设备凭证）")
+        })?;
+
+        // 1) 状态检查（复用快照/导出的 shut off 逻辑）
+        let hypervisor = self.libvirt()?;
+        Self::ensure_shut_off(&hypervisor, &args.vm_name)?;
+
+        // 2) 导出扁平 qcow2 到 <data-dir>/exports/
+        let (_hypervisor, disk) = self.domain_disk(&args.vm_name)?;
+        let exports_dir = self.data_dir.join("exports");
+        std::fs::create_dir_all(&exports_dir)
+            .with_context(|| format!("创建导出目录失败: {}", exports_dir.display()))?;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or(0);
+        let export_path = exports_dir.join(format!("{}-{timestamp}-make.qcow2", args.vm_name));
+        qemu_img_export(&disk, &export_path, "qcow2")
+            .context("image.make 阶段 export：qemu-img convert 失败")?;
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(export_path.clone());
+
+        // 3) 分片上传 + register（在独立 blocking runtime 里跑异步 HTTP）
+        let request = crate::image_make::ImageMakeRequest {
+            name: args.name.clone(),
+            version: args.version.clone(),
+            platform: args.platform.clone(),
+            base_volume: args.base_volume.clone(),
+            description: args.description.clone(),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("image.make 阶段 upload：创建运行时失败")?;
+        let made = runtime
+            .block_on(crate::image_make::upload_and_register(
+                transport,
+                &export_path,
+                &request,
+            ))
+            .context("image.make 阶段 upload/register 失败")?;
+        tracing::info!(
+            vm = %args.vm_name,
+            image_id = %made.image_id,
+            digest = %made.manifest_digest,
+            chunks = made.chunks,
+            uploaded = made.uploaded_chunks,
+            skipped = made.skipped_chunks,
+            "image.make 完成"
+        );
+        Ok(made.to_json())
+    }
 }
 
 fn state_str(state: DomainState) -> &'static str {
@@ -742,6 +907,7 @@ enum PreparedOp {
     Snapshot(SnapshotAction, String, Option<String>),
     DiskInfo(String),
     Export(String, String),
+    ImageMake(ImageMakeArgs),
 }
 
 fn prepare(command: &VmCommand) -> Result<PreparedOp> {
@@ -769,6 +935,7 @@ fn prepare(command: &VmCommand) -> Result<PreparedOp> {
         }
         VmOp::DiskInfo => PreparedOp::DiskInfo(name),
         VmOp::Export => PreparedOp::Export(name, command.export_format()),
+        VmOp::ImageMake => PreparedOp::ImageMake(command.image_make_args()?),
     })
 }
 
@@ -801,6 +968,7 @@ pub async fn execute_with_timeout(
             }
             PreparedOp::DiskInfo(name) => executor.disk_info(&name),
             PreparedOp::Export(name, format) => executor.export(&name, &format),
+            PreparedOp::ImageMake(args) => executor.image_make(&args),
         }
     });
 
@@ -1579,6 +1747,20 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
                 "format": format,
             }))
         }
+
+        fn image_make(&self, args: &ImageMakeArgs) -> Result<Value> {
+            self.record("image.make", &args.vm_name);
+            Ok(json!({
+                "image_id": "img-1",
+                "manifest_digest": "d".repeat(64),
+                "name": args.name,
+                "version": args.version,
+                "total_size": 33_554_432,
+                "chunks": 1,
+                "uploaded_chunks": 1,
+                "skipped_chunks": 0,
+            }))
+        }
     }
 
     fn command(payload: &str) -> VmCommand {
@@ -1815,6 +1997,95 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
         .await;
         assert!(!result.ok);
         assert!(result.error.unwrap().contains("超时"));
+    }
+
+    #[test]
+    fn parses_image_make_command() {
+        let command = parse(&format!(
+            r#"{{"request_id":"{}","op":"image.make","args":{{
+                "vm_name":"vm-1","name":"base-win11","version":"1.0.0",
+                "platform":"linux/amd64","base_volume":"base-win11",
+                "description":"考场基线"}}}}"#,
+            request_id()
+        ))
+        .unwrap();
+        let args = command.image_make_args().unwrap();
+        assert_eq!(args.vm_name, "vm-1");
+        assert_eq!(args.name, "base-win11");
+        assert_eq!(args.version, "1.0.0");
+        assert_eq!(args.platform, "linux/amd64");
+        assert_eq!(args.base_volume.as_deref(), Some("base-win11"));
+        assert_eq!(args.description.as_deref(), Some("考场基线"));
+
+        // platform 缺省 linux/amd64
+        let command = parse(&format!(
+            r#"{{"request_id":"{}","op":"image.make","args":{{
+                "vm_name":"vm-1","name":"base","version":"1"}}}}"#,
+            request_id()
+        ))
+        .unwrap();
+        assert_eq!(command.image_make_args().unwrap().platform, "linux/amd64");
+
+        // 缺 vm_name / name / version 都拒绝
+        for fragment in [
+            r#""name":"base","version":"1""#,
+            r#""vm_name":"vm-1","version":"1""#,
+            r#""vm_name":"vm-1","name":"base""#,
+        ] {
+            let payload = format!(
+                r#"{{"request_id":"{}","op":"image.make","args":{{{}}}}}"#,
+                request_id(),
+                fragment
+            );
+            assert!(parse(&payload).is_err(), "{fragment} 应被拒绝");
+        }
+
+        // 非法版本/platform/name
+        for fragment in [
+            r#""vm_name":"vm-1","name":"base","version":"1 0""#,
+            r#""vm_name":"vm-1","name":"base","version":"1","platform":"linux amd64""#,
+            r#""vm_name":"../vm","name":"base","version":"1""#,
+        ] {
+            let payload = format!(
+                r#"{{"request_id":"{}","op":"image.make","args":{{{}}}}}"#,
+                request_id(),
+                fragment
+            );
+            assert!(parse(&payload).is_err(), "{fragment} 应被拒绝");
+        }
+    }
+
+    #[test]
+    fn command_timeouts_match_contract() {
+        assert_eq!(VmOp::Screenshot.timeout(), SCREENSHOT_TIMEOUT);
+        assert_eq!(VmOp::Create.timeout(), HEAVY_TIMEOUT);
+        assert_eq!(VmOp::Export.timeout(), HEAVY_TIMEOUT);
+        assert_eq!(VmOp::ImageMake.timeout(), MAKE_TIMEOUT);
+        assert_eq!(VmOp::List.timeout(), COMMAND_TIMEOUT);
+        assert_eq!(MAKE_TIMEOUT, Duration::from_secs(600));
+    }
+
+    #[tokio::test]
+    async fn image_make_dispatches_to_executor() {
+        let executor = Arc::new(MockExecutor::default());
+        let result = execute(
+            executor.clone(),
+            command(&format!(
+                r#"{{"request_id":"{}","op":"image.make","args":{{
+                    "vm_name":"vm-1","name":"base-win11","version":"1.0.0"}}}}"#,
+                request_id()
+            )),
+        )
+        .await;
+        assert!(result.ok, "{:?}", result.error);
+        let data = result.data.unwrap();
+        assert_eq!(data["image_id"], "img-1");
+        assert_eq!(data["chunks"], 1);
+        assert_eq!(data["uploaded_chunks"], 1);
+        assert_eq!(
+            executor.calls.lock().unwrap().as_slice(),
+            [("image.make".to_string(), "vm-1".to_string())]
+        );
     }
 
     /// 1x1 黑色 PNG（测试用）。

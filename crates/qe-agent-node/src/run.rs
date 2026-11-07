@@ -273,7 +273,8 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
     // 避免无 libvirt 权限的机器注册 VM 命令）。
     {
         let executor: Arc<dyn crate::vm_control::VmExecutor> = Arc::new(
-            crate::vm_control::LibvirtExecutor::new(config.data_dir.clone()),
+            crate::vm_control::LibvirtExecutor::new(config.data_dir.clone())
+                .with_transport(transport_config(&credentials, &config)),
         );
         let command_transport = Arc::new(transport_config(&credentials, &config));
         dispatcher.subscribe("vm.command", move |message: DownlinkMessage| {

@@ -157,3 +157,95 @@ qe-agent cli vm --uri qemu:///session disk-info qe-demo-01
 - 导出到本地 `<data-dir>/exports/`，上传对象存储与发布镜像属阶段 2；
 - `create` 不自动扩容/不修改底包；底包始终只读（backing file 语义）；
 - 同名差分盘已存在时不会覆盖（qemu-img 会失败），需先删除或换名。
+
+## 8. image.make：从 VM 制作镜像（阶段 2，agent 侧）
+
+把导出的扁平 qcow2 变成可分发底包：**导出 → 32 MiB 分片 → 逐片 presign/上传 →
+register（device-pki 构造并签名 manifest）**，复用现有
+`image_chunks` + `verify` + `publish` 分发链路。
+
+### 8.1 `vm.command` op `image.make`
+
+args：
+
+```json
+{
+  "vm_name": "vm-1",
+  "name": "base-win11",
+  "version": "1.0.0",
+  "platform": "linux/amd64",
+  "base_volume": "base-win11",
+  "description": "考场基线"
+}
+```
+
+要求：
+
+- `vm_name` 必须是已存在的 libvirt 域且 **shut off**（复用快照/导出的状态检查）；
+- `name` 允许 `[A-Za-z0-9._-]{1,64}`；`version` 允许 `[A-Za-z0-9._+-]{1,64}`；
+- `platform` 缺省 `linux/amd64`（≤32 字符，允许 `A-Za-z0-9._-/`）；
+- `base_volume` / `description` 可选，写入 manifest `annotations`；
+- 总超时 **600s**（`MAKE_TIMEOUT`），错误信息带阶段：`export` / `upload N` / `register`。
+
+data：
+
+```json
+{
+  "image_id": "…",
+  "manifest_digest": "…",
+  "name": "base-win11",
+  "version": "1.0.0",
+  "total_size": 1073741824,
+  "chunks": 32,
+  "uploaded_chunks": 30,
+  "skipped_chunks": 2
+}
+```
+
+### 8.2 流程与实现
+
+`crates/qe-agent-node/src/image_make.rs`：
+
+1. **export**：`LibvirtExecutor` 先 `qemu-img convert -O qcow2` 到
+   `<data-dir>/exports/<vm>-<ts>-make.qcow2`（复用快照/导出的 export helper）；
+2. **切片**：`plan_chunks(total_size)` 纯函数按 32 MiB 切分（`CHUNK_SIZE`），
+   最后一片可小；拒绝空文件 / >64 GiB / >2048 片；
+3. **逐片上传**：`sha256_range` 计算分片 sha256 →
+   `POST /machine/images/presign-upload {sha256,size_bytes}`（mTLS）→
+   `already_exists=true` 跳过、否则 reqwest `PUT`（`application/octet-stream`，
+   600s 超时）；
+4. **register**：`POST /machine/images/register`
+   `{name,version,platform,kind:"vm_disk",format:"qcow2",compression:"none",
+     total_size,parts:[{sha256,size}],annotations?}` →
+   `{image_id,manifest_digest,status}`；
+5. **清理**：本地导出文件无论成功/失败都删除（Drop 守卫）。
+
+客户端方法在 `qe-device-pki-client::image`：
+`presign_upload` / `register_image`（mTLS，错误风格与 p2p/command 模块一致）。
+
+### 8.3 CLI
+
+```bash
+# 要求 VM 已关机；使用设备证书 mTLS（DEVICE_SLOT / DEVICE_PKI_MTLS_URL 来自 env）
+qe-agent cli vm make-image vm-1 \
+  --name base-win11 --version 1.0.0 \
+  --platform linux/amd64 \
+  --base-volume base-win11 \
+  --description "考场基线"
+```
+
+输出 `image_id`、`manifest_digest` 与完整 JSON；失败时打印带阶段信息的错误。
+
+### 8.4 测试与限制
+
+- 单测：分片规划（整除/余数/单字节/空文件/64GiB 上限/2048 片上限）、
+  `sha256_range` 正确性与越界、annotations、命令解析/校验/分发/超时映射；
+- 客户端单测：presign/register 请求体与响应字段形状（含 `already_exists` 缺省
+  `upload_url`、annotations 省略）；
+- **未做真实 S3/rustfs 上传测试**：需要 device-pki 端点（控制面 task-20）与对象存储
+  环境，由 Lead 做 E2E；本任务不伪造上传 PASS。
+- 失败重试：presign/register 失败直接返回错误（不重试，控制面可重发命令）；
+  `already_exists` 的分片天然幂等；
+- 上传并发为串行（逐片），大镜像（64 GiB）在 600s 内是否够取决于带宽，可按需
+  调整 `MAKE_TIMEOUT` 或后续改并行上传；
+- `image.make` 只支持第一块可写磁盘（与 export 一致），多盘/快照历史不在阶段 2。

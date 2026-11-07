@@ -22,6 +22,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub mod cache;
 pub mod config;
+pub mod image_make;
 pub mod importer;
 pub mod job;
 pub mod manifest;

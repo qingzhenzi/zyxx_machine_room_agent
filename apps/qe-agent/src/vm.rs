@@ -111,6 +111,9 @@ pub enum VmCmd {
         #[arg(long, default_value = "qcow2")]
         format: String,
     },
+
+    /// 制作镜像：VM 导出 → 32MiB 分片上传 → register（要求虚拟机已关机）
+    MakeImage(MakeImageArgs),
 }
 
 /// `qe-agent vm snapshot ...`
@@ -228,8 +231,35 @@ impl AccelArg {
     }
 }
 
+/// `cli vm make-image` 的参数。
+#[derive(Debug, Args)]
+pub struct MakeImageArgs {
+    /// 源虚拟机名（要求已关机）
+    pub vm_name: String,
+
+    /// 镜像名
+    #[arg(long)]
+    pub name: String,
+
+    /// 镜像版本
+    #[arg(long)]
+    pub version: String,
+
+    /// 目标平台
+    #[arg(long, default_value = "linux/amd64")]
+    pub platform: String,
+
+    /// 底包卷名（写入 manifest annotations）
+    #[arg(long)]
+    pub base_volume: Option<String>,
+
+    /// 描述（写入 manifest annotations）
+    #[arg(long)]
+    pub description: Option<String>,
+}
+
 /// 入口：连接后端并分发子命令。
-pub fn run(args: VmArgs, data_dir: &Path) -> Result<()> {
+pub fn run(args: VmArgs, data_dir: &Path, slot: Option<&str>) -> Result<()> {
     let (hv, uri) = connect(args.uri.as_deref())?;
     match args.cmd {
         VmCmd::Ls => list(&hv),
@@ -287,6 +317,7 @@ pub fn run(args: VmArgs, data_dir: &Path) -> Result<()> {
         VmCmd::Snapshot { cmd } => snapshot_cmd(&data_dir, Some(uri.as_str()), cmd),
         VmCmd::DiskInfo { name } => disk_info_cmd(&data_dir, Some(uri.as_str()), &name),
         VmCmd::Export { name, format } => export_cmd(&data_dir, Some(uri.as_str()), &name, &format),
+        VmCmd::MakeImage(args) => make_image(&data_dir, Some(uri.as_str()), slot, args),
     }
 }
 
@@ -339,6 +370,73 @@ fn export_cmd(data_dir: &Path, uri: Option<&str>, name: &str, format: &str) -> R
         .with_context(|| format!("导出 {name} 磁盘失败"))?;
     println!("{}", serde_json::to_string_pretty(&data)?);
     Ok(())
+}
+
+/// `vm make-image`：导出 → 32MiB 分片上传 → register，打印 image_id/digest。
+fn make_image(
+    data_dir: &Path,
+    uri: Option<&str>,
+    slot: Option<&str>,
+    args: MakeImageArgs,
+) -> Result<()> {
+    use qe_agent_node::vm_control::{ImageMakeArgs, LibvirtExecutor, VmExecutor};
+    let transport = image_transport(data_dir, slot)?;
+    let executor =
+        LibvirtExecutor::with_uri(data_dir, uri.map(str::to_owned)).with_transport(transport);
+    let image_args = ImageMakeArgs {
+        vm_name: args.vm_name,
+        name: args.name,
+        version: args.version,
+        platform: args.platform,
+        base_volume: args.base_volume,
+        description: args.description,
+    };
+    let data = executor
+        .image_make(&image_args)
+        .context("image.make 失败（错误信息包含 export/upload/register 阶段）")?;
+    let image_id = data
+        .get("image_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>");
+    let digest = data
+        .get("manifest_digest")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>");
+    println!("image_id: {image_id}");
+    println!("manifest_digest: {digest}");
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
+}
+
+/// 构造 image.make 的 mTLS transport（设备凭证 + `DEVICE_PKI_MTLS_URL`）。
+fn image_transport(
+    data_dir: &Path,
+    slot: Option<&str>,
+) -> Result<qe_device_pki_client::transport::TransportConfig> {
+    use qe_device_pki_client::creds::{self, Credentials};
+    let slot = slot
+        .map(str::to_owned)
+        .or_else(|| std::env::var("DEVICE_SLOT").ok())
+        .map(|slot| slot.trim().to_owned())
+        .filter(|slot| !slot.is_empty())
+        .context("image.make 需要设备槽位（--slot 或 DEVICE_SLOT）")?;
+    let creds_dir = creds::locate(&slot, Some(data_dir))
+        .context("定位设备凭证目录失败（先 qe-agent cli enroll）")?;
+    let mut credentials = Credentials::load(&creds_dir)
+        .with_context(|| format!("加载设备凭证失败: {}", creds_dir.display()))?;
+    if let Ok(endpoint) = std::env::var("DEVICE_PKI_MTLS_URL") {
+        let endpoint = endpoint.trim();
+        if !endpoint.is_empty() {
+            credentials.mtls_endpoint = endpoint.to_owned();
+        }
+    }
+    if credentials.mtls_endpoint.trim().is_empty() {
+        bail!("image.make 需要 DEVICE_PKI_MTLS_URL（device-pki mTLS 端点）");
+    }
+    Ok(qe_device_pki_client::transport::TransportConfig::new(
+        credentials,
+        data_dir.to_path_buf(),
+    ))
 }
 
 /// 连接 libvirt：显式 URI 优先，否则 system → session 回落。
