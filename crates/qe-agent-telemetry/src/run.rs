@@ -135,6 +135,8 @@ fn run_daemon(
 ) -> i32 {
     let mut next_fast = Instant::now();
     let mut next_full = Instant::now();
+    // 下行 `telemetry.report` 命令由 agent-node 写到该文件；遥测线程发现后立即跑一次 fast。
+    let trigger_path = config.data_dir.join("telemetry.report.request");
     let mut fast_round: u64 = 0;
     let mut full_round: u64 = 0;
     let mut fast_cycles_since_refresh: u64 = 0;
@@ -150,11 +152,24 @@ fn run_daemon(
             next = next.min(security);
         }
         if next > now {
-            std::thread::sleep(next - now);
+            // 最多睡 500ms，保证即时上报请求不会被 10s/300s 的周期睡眠拖住。
+            std::thread::sleep((next - now).min(Duration::from_millis(500)));
         }
         let now = Instant::now();
 
-        if now >= next_fast {
+        let forced_fast = std::fs::remove_file(&trigger_path).is_ok();
+        if forced_fast {
+            fast_round += 1;
+            run_round(
+                config,
+                sender,
+                tools_cache,
+                MachineReportTier::Fast,
+                intervals,
+                fast_round,
+            );
+            next_fast = now + Duration::from_secs(intervals.fast_secs.max(1));
+        } else if now >= next_fast {
             fast_round += 1;
             run_round(
                 config,

@@ -419,6 +419,25 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
         });
     }
 
+    // 6.15 telemetry.report：控制面请求立即上报一次 fast 快照。
+    // telemetry 线程独立运行，这里只写触发文件；线程每 500ms 检查一次。
+    {
+        let trigger = config.data_dir.join("telemetry.report.request");
+        dispatcher.subscribe("telemetry.report", move |message: DownlinkMessage| {
+            let trigger = trigger.clone();
+            async move {
+                std::fs::write(&trigger, b"fast").map_err(|error| {
+                    qe_device_pki_client::Error::Unexpected(format!(
+                        "写遥测触发文件失败 {}: {error}",
+                        trigger.display()
+                    ))
+                })?;
+                info!(id = message.id, "收到立即上报请求，已唤醒遥测线程");
+                Ok(())
+            }
+        });
+    }
+
     // 6.2 config.update：校验完整策略后替换；坏 payload 返回 Err → 不 ack，下轮重投。
     {
         let runtime_policy = Arc::clone(&runtime_policy);
