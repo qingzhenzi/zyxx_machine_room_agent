@@ -9,6 +9,7 @@ pub mod creds;
 pub mod downlink;
 pub mod enroll;
 pub mod error;
+pub mod p2p;
 pub mod transcript;
 pub mod transport;
 pub mod trust;

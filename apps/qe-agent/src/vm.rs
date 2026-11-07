@@ -7,14 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 
 use virt_core::{
-    net::parse_nic, Accel, BootDevice, DisplayConfig, DisplayKind, DomainState, LoadRules, VmSpec,
+    Accel, BootDevice, DisplayConfig, DisplayKind, DomainState, LoadRules, VmSpec, net::parse_nic,
 };
 use virt_crate::{AnyDomain, Backend};
-use virt_libvirt::{create_disk, parse_size, DiskFormat, LibvirtHypervisor};
+use virt_libvirt::{DiskFormat, LibvirtHypervisor, create_disk, parse_size};
 
 /// `qe-agent vm` 的参数：一个全局 URI + 子命令。
 #[derive(Debug, Args)]
@@ -342,12 +342,7 @@ fn info(hv: &Backend, name: &str) -> Result<()> {
 
     match dom.console() {
         Ok(Some(gfx)) => {
-            println!(
-                "画面     : {} {}:{}",
-                gfx.kind.as_str(),
-                gfx.host,
-                gfx.port
-            );
+            println!("画面     : {} {}:{}", gfx.kind.as_str(), gfx.host, gfx.port);
             if let Some(display) = gfx.vnc_display() {
                 println!("           display :{display}");
             }
@@ -429,10 +424,8 @@ fn create_vm(hv: &Backend, args: CreateArgs, data_dir: &Path) -> Result<()> {
         ..Default::default()
     };
     for network in &args.network {
-        spec.nics.push(
-            parse_nic(network)
-                .with_context(|| format!("解析 --network {network:?} 失败"))?,
-        );
+        spec.nics
+            .push(parse_nic(network).with_context(|| format!("解析 --network {network:?} 失败"))?);
     }
 
     let dom = hv
@@ -441,7 +434,8 @@ fn create_vm(hv: &Backend, args: CreateArgs, data_dir: &Path) -> Result<()> {
     println!("已定义虚拟机 {name}");
 
     if args.start {
-        dom.start().context("启动失败（若 accel=auto 已回落到 TCG 仍失败，看 libvirt 日志）")?;
+        dom.start()
+            .context("启动失败（若 accel=auto 已回落到 TCG 仍失败，看 libvirt 日志）")?;
         println!("已启动 {name}");
         if let Some(hint) = vnc_hint(&dom) {
             println!("{hint}");
@@ -531,7 +525,10 @@ fn vnc(hv: &Backend, name: &str) -> Result<()> {
                 "别的机器看: ssh -L {port}:127.0.0.1:{port} <user>@<这台机器地址>",
                 port = gfx.port
             );
-            println!("            然后在你的机器上 vncviewer 127.0.0.1:{}", gfx.port);
+            println!(
+                "            然后在你的机器上 vncviewer 127.0.0.1:{}",
+                gfx.port
+            );
             println!("            （VNC 默认只听 127.0.0.1，走 SSH 隧道即可，别开到公网）");
             println!();
             println!("只要截图  : qe-agent vm screenshot {name} -o {name}.png");
@@ -545,8 +542,12 @@ fn screenshot(hv: &Backend, name: &str, out: Option<PathBuf>) -> Result<()> {
     let image = hv
         .screenshot_of(name)
         .with_context(|| format!("截图失败（{name} 必须在运行且有图形控制台）"))?;
-    let native = ImageKind::detect(&image)
-        .with_context(|| format!("无法识别截图格式（前 8 字节：{:?}）", &image[..image.len().min(8)]))?;
+    let native = ImageKind::detect(&image).with_context(|| {
+        format!(
+            "无法识别截图格式（前 8 字节：{:?}）",
+            &image[..image.len().min(8)]
+        )
+    })?;
 
     let out = out.unwrap_or_else(|| PathBuf::from(format!("{name}.{}", native.extension())));
     let wanted = match out.extension().and_then(|ext| ext.to_str()) {
@@ -640,7 +641,9 @@ fn convert_image(source: &Path, target: &Path) -> Result<()> {
 fn console(uri: &str, name: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
 
-    println!("连接 {name} 的串口控制台（退出：Ctrl+ ]）。若 guest 没配 console=ttyS0，这里会一片空白。");
+    println!(
+        "连接 {name} 的串口控制台（退出：Ctrl+ ]）。若 guest 没配 console=ttyS0，这里会一片空白。"
+    );
     let error = Command::new("virsh")
         .args(["-c", uri, "console", name])
         .exec();
@@ -655,7 +658,10 @@ fn vnc_hint(dom: &AnyDomain) -> Option<String> {
     let gfx = dom.console().ok().flatten()?;
     let mut hint = format!("画面：{} {}:{}", gfx.kind.as_str(), gfx.host, gfx.port);
     if let Some(display) = gfx.vnc_display() {
-        hint.push_str(&format!("（vncviewer 127.0.0.1:{port}，display :{display}）", port = gfx.port));
+        hint.push_str(&format!(
+            "（vncviewer 127.0.0.1:{port}，display :{display}）",
+            port = gfx.port
+        ));
     }
     Some(hint)
 }

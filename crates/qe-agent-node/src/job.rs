@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 use crate::importer::{ImportRequest, ImporterSet};
 use crate::manifest::{ImageKind, Manifest};
+use crate::p2p::{MAX_PEER_ATTEMPTS, P2pDistribution, PEER_FETCH_TIMEOUT, verify_artifact};
 use crate::pull::{PullRequest, Puller};
 use crate::report::{CompletedPayload, Phase, ProgressEvent, ProgressPayload, Reporter};
 
@@ -67,6 +68,8 @@ pub struct ImagePullJob {
     importers: ImporterSet,
     reporter: Arc<dyn Reporter>,
     staging_root: PathBuf,
+    /// P2P 分发上下文；`None` 或运行中 peer 不可用时回退 HTTP。
+    p2p: Option<Arc<P2pDistribution>>,
 }
 
 impl ImagePullJob {
@@ -81,7 +84,14 @@ impl ImagePullJob {
             importers,
             reporter,
             staging_root: staging_root.into(),
+            p2p: None,
         }
+    }
+
+    /// 挂载 P2P 分发上下文：image.pull 会先查 peer、命中并校验通过则跳过 HTTP 分片下载。
+    pub fn with_p2p(mut self, p2p: Arc<P2pDistribution>) -> Self {
+        self.p2p = Some(p2p);
+        self
     }
 
     /// 处理一条 `image.pull` 下行 payload（JSON 字符串）。
@@ -115,12 +125,16 @@ impl ImagePullJob {
             staging_dir,
         };
 
-        let pulled = match self
-            .pull_with_progress(&payload.transfer_id, &request)
-            .await
-        {
-            Ok(pulled) => pulled,
-            Err(error) => return self.report_failure(&payload, error).await,
+        // P2P 优先：开关关闭 / 无 peer / 下载或校验失败都无感回退 HTTP 分片下载。
+        let (pulled, source) = match self.try_p2p_pull(&payload, &request).await {
+            Some(pulled) => (pulled, "p2p"),
+            None => match self
+                .pull_with_progress(&payload.transfer_id, &request)
+                .await
+            {
+                Ok(pulled) => (pulled, "http"),
+                Err(error) => return self.report_failure(&payload, error).await,
+            },
         };
 
         self.report_progress(
@@ -167,7 +181,8 @@ impl ImagePullJob {
                     &payload.transfer_id,
                     &payload.manifest_digest,
                     &result.imported_ref,
-                );
+                )
+                .with_source(source);
                 if let Err(error) = self.reporter.completed(&completed).await {
                     tracing::warn!(
                         transfer_id = %payload.transfer_id,
@@ -175,9 +190,14 @@ impl ImagePullJob {
                         "transfer.completed 上报失败（消息已入 outbox，等待重放）"
                     );
                 }
+                // best-effort：登记本机 seed，供同网段其它设备 P2P 拉取。
+                // 失败只记日志，不影响 pull/import 结果。
+                self.seed_artifact(&payload.manifest_digest, &pulled.artifact_path)
+                    .await;
                 tracing::info!(
                     transfer_id = %payload.transfer_id,
                     imported_ref = %result.imported_ref,
+                    source,
                     "image.pull 完成"
                 );
                 Ok(JobOutcome {
@@ -225,6 +245,148 @@ impl ImagePullJob {
         // pull 结束→闭包被丢弃→发送端关闭→转发任务退出
         let _ = forwarder.await;
         result
+    }
+
+    /// P2P 优先拉取：命中并校验通过返回产物；否则 `None`（调用方回退 HTTP）。
+    async fn try_p2p_pull(
+        &self,
+        payload: &ImagePullPayload,
+        request: &PullRequest,
+    ) -> Option<crate::pull::PulledImage> {
+        let p2p = self.p2p.as_ref()?;
+
+        // manifest 仍从控制面（预签名 HTTP）取：体积小，且是 chunk 校验的唯一根。
+        let manifest = match self.puller.prepare_manifest(request).await {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                tracing::warn!(
+                    transfer_id = %payload.transfer_id,
+                    error = %format!("{error:#}"),
+                    "P2P 预取 manifest 失败，回退 HTTP"
+                );
+                return None;
+            }
+        };
+
+        let peers = match p2p.peers(&payload.manifest_digest).await {
+            Ok(peers) => peers,
+            Err(error) => {
+                tracing::warn!(
+                    transfer_id = %payload.transfer_id,
+                    error = %format!("{error:#}"),
+                    "查询 P2P peers 失败，回退 HTTP"
+                );
+                return None;
+            }
+        };
+        if peers.is_empty() {
+            tracing::debug!(transfer_id = %payload.transfer_id, "没有可用 P2P peer，回退 HTTP");
+            return None;
+        }
+
+        let expected_size = u64::try_from(manifest.total_size).ok();
+        self.report_progress(
+            &payload.transfer_id,
+            ProgressEvent::new(Phase::Download, 0, 0),
+        )
+        .await;
+
+        for peer in peers.iter().take(MAX_PEER_ATTEMPTS) {
+            if expected_size != Some(peer.size_bytes) {
+                tracing::warn!(
+                    transfer_id = %payload.transfer_id,
+                    peer = %peer.serial,
+                    expected = ?expected_size,
+                    actual = peer.size_bytes,
+                    "P2P peer 登记大小与 manifest 不符，跳过"
+                );
+                continue;
+            }
+            let path = match p2p
+                .fetch(&peer.blob_ticket, &request.staging_dir, PEER_FETCH_TIMEOUT)
+                .await
+            {
+                Ok(path) => path,
+                Err(error) => {
+                    tracing::warn!(
+                        transfer_id = %payload.transfer_id,
+                        peer = %peer.serial,
+                        error = %format!("{error:#}"),
+                        "P2P 下载失败，尝试下一个 peer"
+                    );
+                    continue;
+                }
+            };
+
+            match verify_artifact(&path, &manifest) {
+                Ok(()) => {
+                    let bytes = manifest.total_size;
+                    self.report_progress(
+                        &payload.transfer_id,
+                        ProgressEvent::new(Phase::Download, 80, bytes),
+                    )
+                    .await;
+                    self.report_progress(
+                        &payload.transfer_id,
+                        ProgressEvent::new(Phase::Verify, 90, bytes),
+                    )
+                    .await;
+                    tracing::info!(
+                        transfer_id = %payload.transfer_id,
+                        peer = %peer.serial,
+                        path = %path.display(),
+                        "P2P 命中：产物已通过 manifest 分片校验"
+                    );
+                    return Some(crate::pull::PulledImage {
+                        manifest,
+                        staging_dir: request.staging_dir.clone(),
+                        artifact_path: path,
+                        bytes,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        transfer_id = %payload.transfer_id,
+                        peer = %peer.serial,
+                        error = %format!("{error:#}"),
+                        "P2P 产物校验失败，删除并尝试下一个 peer"
+                    );
+                    let _ = tokio::fs::remove_file(&path).await;
+                }
+            }
+        }
+
+        tracing::warn!(
+            transfer_id = %payload.transfer_id,
+            "所有 P2P peer 均不可用，回退 HTTP"
+        );
+        None
+    }
+
+    /// best-effort 分享产物并登记 seed（失败只记日志，不影响 pull 结果）。
+    async fn seed_artifact(&self, manifest_digest: &str, artifact_path: &Path) {
+        let Some(p2p) = self.p2p.as_ref() else {
+            return;
+        };
+        match p2p.share(artifact_path).await {
+            Ok((ticket, size)) => match p2p.seed(manifest_digest, &ticket, size).await {
+                Ok(()) => tracing::info!(
+                    digest = %manifest_digest,
+                    size,
+                    "P2P seed 已登记"
+                ),
+                Err(error) => tracing::warn!(
+                    digest = %manifest_digest,
+                    error = %format!("{error:#}"),
+                    "P2P seed 登记失败（不影响 pull）"
+                ),
+            },
+            Err(error) => tracing::warn!(
+                artifact = %artifact_path.display(),
+                error = %format!("{error:#}"),
+                "P2P 分享产物失败（不影响 pull）"
+            ),
+        }
     }
 
     async fn report_progress(&self, transfer_id: &str, event: ProgressEvent) {
@@ -317,13 +479,18 @@ pub fn ensure_staging_root(root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BoxFuture;
     use crate::cache::ObjectCache;
     use crate::importer::TopologyImporter;
     use crate::manifest::ImageFormat;
+    use crate::p2p::{BlobExchange, P2pDistribution, PeerSeed, SeedRegistry};
     use crate::pull::Puller;
-    use crate::pull::test_util::{Fixture, MockFetcher, MockPresign, fixture, raw_fixture_for_job};
+    use crate::pull::test_util::{
+        Fixture, MockFetcher, MockPresign, fixture, manifest_url, object_url, raw_fixture_for_job,
+    };
     use crate::report::test_support::RecordingReporter;
     use std::sync::Mutex;
+    use std::time::Duration;
 
     #[derive(Default)]
     struct MockImporter {
@@ -631,5 +798,229 @@ mod tests {
         use base64::engine::general_purpose::STANDARD;
         let key = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
         STANDARD.encode(key.verifying_key().as_bytes())
+    }
+
+    // ---------------- P2P 接入测试（mock blob/seed，不依赖真实网络） ----------------
+
+    struct MockBlobs {
+        data: Vec<u8>,
+        shares: Mutex<Vec<PathBuf>>,
+    }
+
+    impl BlobExchange for MockBlobs {
+        fn share<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, Result<(String, u64)>> {
+            Box::pin(async move {
+                self.shares.lock().unwrap().push(path.to_path_buf());
+                Ok(("mock-ticket".to_owned(), self.data.len() as u64))
+            })
+        }
+
+        fn fetch<'a>(
+            &'a self,
+            ticket: &'a str,
+            dest_dir: &'a Path,
+            _timeout: Duration,
+        ) -> BoxFuture<'a, Result<PathBuf>> {
+            Box::pin(async move {
+                tokio::fs::create_dir_all(dest_dir).await?;
+                let path = dest_dir.join(format!("p2p-{}.raw", ticket.len()));
+                tokio::fs::write(&path, &self.data).await?;
+                Ok(path)
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct MockSeeds {
+        peers: Mutex<Vec<PeerSeed>>,
+        seeded: Mutex<Vec<(String, String, u64)>>,
+    }
+
+    impl SeedRegistry for MockSeeds {
+        fn peers<'a>(&'a self, _manifest_digest: &'a str) -> BoxFuture<'a, Result<Vec<PeerSeed>>> {
+            Box::pin(async move { Ok(self.peers.lock().unwrap().clone()) })
+        }
+
+        fn seed<'a>(
+            &'a self,
+            manifest_digest: &'a str,
+            blob_ticket: &'a str,
+            size_bytes: u64,
+        ) -> BoxFuture<'a, Result<()>> {
+            Box::pin(async move {
+                self.seeded.lock().unwrap().push((
+                    manifest_digest.to_owned(),
+                    blob_ticket.to_owned(),
+                    size_bytes,
+                ));
+                Ok(())
+            })
+        }
+    }
+
+    struct P2pHarness {
+        _dir: tempfile::TempDir,
+        job: ImagePullJob,
+        reporter: Arc<RecordingReporter>,
+        fetcher: Arc<MockFetcher>,
+        seeds: Arc<MockSeeds>,
+        fixture: Fixture,
+    }
+
+    fn assembled_bytes(fixture: &Fixture) -> Vec<u8> {
+        fixture.chunk_data.iter().flatten().copied().collect()
+    }
+
+    fn harness_with_p2p(fixture: Fixture, blobs: MockBlobs, peers: Vec<PeerSeed>) -> P2pHarness {
+        let fixture = Arc::new(fixture);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(ObjectCache::new(dir.path().join("cache"), 1 << 30));
+        let presign = Arc::new(MockPresign::new(fixture.clone()));
+        let fetcher = Arc::new(MockFetcher::new(&fixture));
+        let puller = Puller::new(presign, fetcher.clone(), cache, 2);
+        let reporter = Arc::new(RecordingReporter::default());
+        let seeds = Arc::new(MockSeeds::default());
+        seeds.peers.lock().unwrap().extend(peers);
+        let blobs = Arc::new(blobs);
+        let job = ImagePullJob::new(
+            puller,
+            ImporterSet::new(vec![Arc::new(MockImporter::default())]),
+            reporter.clone(),
+            dir.path().join("staging"),
+        )
+        .with_p2p(Arc::new(P2pDistribution::new(blobs, seeds.clone())));
+        P2pHarness {
+            _dir: dir,
+            job,
+            reporter,
+            fetcher,
+            seeds,
+            fixture: (*fixture).clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn p2p_hit_skips_http_chunks_and_reports_source() {
+        let fixture = raw_fixture_for_job();
+        let data = assembled_bytes(&fixture);
+        let size = data.len() as u64;
+        let peers = vec![PeerSeed {
+            serial: "peer-a".into(),
+            blob_ticket: "ticket-a".into(),
+            size_bytes: size,
+            updated_at: String::new(),
+        }];
+        let harness = harness_with_p2p(
+            fixture,
+            MockBlobs {
+                data,
+                shares: Mutex::new(Vec::new()),
+            },
+            peers,
+        );
+
+        let outcome = harness
+            .job
+            .run(&payload_json(&harness.fixture))
+            .await
+            .unwrap();
+        assert!(outcome.ok, "p2p 命中应成功: {outcome:?}");
+
+        // 分片 URL 一次都不该被 HTTP 下载；manifest 仍需 HTTP 预签名取一次。
+        for chunk in &harness.fixture.manifest.chunks {
+            assert_eq!(
+                harness.fetcher.fetch_count(&object_url(&chunk.sha256)),
+                0,
+                "P2P 命中时不应回退下载分片 {}",
+                chunk.sha256
+            );
+        }
+        assert_eq!(
+            harness
+                .fetcher
+                .fetch_count(&manifest_url(&harness.fixture.digest)),
+            1
+        );
+
+        let completed = harness.reporter.completed_events();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].source.as_deref(), Some("p2p"));
+
+        let seeded = harness.seeds.seeded.lock().unwrap();
+        assert_eq!(seeded.len(), 1, "成功后应登记一次 seed");
+        assert_eq!(seeded[0].0, harness.fixture.digest);
+        assert_eq!(seeded[0].2, size);
+    }
+
+    #[tokio::test]
+    async fn p2p_no_peers_falls_back_to_http_and_seeds() {
+        let fixture = raw_fixture_for_job();
+        let data = assembled_bytes(&fixture);
+        let harness = harness_with_p2p(
+            fixture,
+            MockBlobs {
+                data,
+                shares: Mutex::new(Vec::new()),
+            },
+            Vec::new(),
+        );
+
+        let outcome = harness
+            .job
+            .run(&payload_json(&harness.fixture))
+            .await
+            .unwrap();
+        assert!(outcome.ok);
+        for chunk in &harness.fixture.manifest.chunks {
+            assert_eq!(
+                harness.fetcher.fetch_count(&object_url(&chunk.sha256)),
+                1,
+                "无 peer 时应回退 HTTP 下载"
+            );
+        }
+        let completed = harness.reporter.completed_events();
+        assert_eq!(completed[0].source.as_deref(), Some("http"));
+        assert_eq!(harness.seeds.seeded.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn p2p_corrupt_artifact_falls_back_to_http() {
+        let fixture = raw_fixture_for_job();
+        let mut data = assembled_bytes(&fixture);
+        data[0] ^= 0xff; // 篡改首字节 → manifest 分片 sha256 不匹配
+        let size = data.len() as u64;
+        let peers = vec![PeerSeed {
+            serial: "peer-bad".into(),
+            blob_ticket: "ticket-bad".into(),
+            size_bytes: size,
+            updated_at: String::new(),
+        }];
+        let harness = harness_with_p2p(
+            fixture,
+            MockBlobs {
+                data,
+                shares: Mutex::new(Vec::new()),
+            },
+            peers,
+        );
+
+        let outcome = harness
+            .job
+            .run(&payload_json(&harness.fixture))
+            .await
+            .unwrap();
+        assert!(
+            outcome.ok,
+            "P2P 校验失败应无感回退 HTTP 并成功: {outcome:?}"
+        );
+        for chunk in &harness.fixture.manifest.chunks {
+            assert_eq!(
+                harness.fetcher.fetch_count(&object_url(&chunk.sha256)),
+                1,
+                "P2P 校验失败后应由 HTTP 重新下载"
+            );
+        }
+        let completed = harness.reporter.completed_events();
+        assert_eq!(completed[0].source.as_deref(), Some("http"));
     }
 }

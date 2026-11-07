@@ -198,6 +198,25 @@ impl Puller {
         })
     }
 
+    /// 仅加载、验签并校验 manifest（P2P 预取产物前需要提前拿到 chunk 列表）。
+    pub async fn prepare_manifest(&self, request: &PullRequest) -> Result<Manifest> {
+        if !is_sha256_hex(&request.manifest_digest) {
+            bail!(
+                "manifest_digest 不是 64 位小写 hex: `{}`",
+                request.manifest_digest
+            );
+        }
+        if request.total_size <= 0 {
+            bail!(
+                "image.pull 的 total_size 必须 > 0，实际 {}",
+                request.total_size
+            );
+        }
+        let manifest = self.load_manifest(request).await?;
+        self.check_request_matches(request, &manifest)?;
+        Ok(manifest)
+    }
+
     /// 取 manifest + 签名并验签。
     async fn load_manifest(&self, request: &PullRequest) -> Result<Manifest> {
         let reply = self

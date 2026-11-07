@@ -7,6 +7,7 @@ use crate::cache::ObjectCache;
 use crate::config::AgentConfig;
 use crate::importer::ImporterSet;
 use crate::job::{ImagePullJob, ensure_staging_root};
+use crate::p2p::{MtlsSeedRegistry, P2pDistribution, SeedRegistry, p2p_enabled_from_env};
 use crate::policy::{self, RuntimePolicy};
 use crate::presign::{MtlsPresignClient, PresignClient};
 use crate::pull::{HttpObjectFetcher, ObjectFetcher, Puller};
@@ -27,6 +28,10 @@ const DOWNLINK_BATCH: i64 = 20;
 /// 仅统一入口注册；独立使用本库时钩子为空，零开销。
 type RemotePolicyHook = Arc<dyn Fn(u64) + Send + Sync>;
 static REMOTE_POLICY_HOOK: std::sync::OnceLock<RemotePolicyHook> = std::sync::OnceLock::new();
+
+/// 延迟获取 P2P 节点：boot 流水线在独立线程里启动 `qep2p::Node`，node 角色
+/// 可能先进入下行循环；每次 `image.pull` 时再取，避免启动时序竞争。
+pub type P2pNodeProvider = Arc<dyn Fn() -> Option<Arc<qep2p::Node>> + Send + Sync>;
 
 /// 注册远端策略应用通知（参数：新的 `telemetry_full_interval_secs`，
 /// 即"周期性深度检查"节奏；boot 周期检查直接复用它作为复检间隔）。
@@ -49,10 +54,21 @@ pub async fn run() -> Result<()> {
 
 /// 使用已解析的配置运行（统一 `qe-agent` 入口；数据目录/槽位可由调用方覆盖）。
 pub async fn run_with_config(config: AgentConfig) -> Result<()> {
+    run_with_p2p(config, None).await
+}
+
+/// 同 [`run_with_config`]，额外传入 P2P 节点提供者（供 boot 阶段懒启动的节点）。
+///
+/// `QE_P2P_ENABLED` 未开启时不使用 provider；开启但节点尚未启动/启动失败只告警，
+/// 回退 HTTP 分片下载，不 panic、不阻塞启动。
+pub async fn run_with_p2p(
+    config: AgentConfig,
+    p2p_provider: Option<P2pNodeProvider>,
+) -> Result<()> {
     // rustls 依赖树里同时存在 aws-lc-rs 与 ring 时无法自动选 provider，必须显式安装。
     let _ = rustls::crypto::ring::default_provider().install_default();
     init_tracing();
-    match run_inner(config).await {
+    match run_inner(config, p2p_provider).await {
         Ok(()) => {
             info!("qe-agent-node 已退出");
             Ok(())
@@ -65,7 +81,7 @@ pub async fn run_with_config(config: AgentConfig) -> Result<()> {
 }
 
 /// 实际启动流程（原 `main.rs` 中的 `run()` 实现）。
-async fn run_inner(config: AgentConfig) -> Result<()> {
+async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -> Result<()> {
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("创建数据目录失败: {}", config.data_dir.display()))?;
     std::fs::create_dir_all(&config.cache_dir)
@@ -169,6 +185,12 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
     let staging_root = config.data_dir.join("staging");
     ensure_staging_root(&staging_root)?;
 
+    // 5.1 P2P seed 登记客户端（设备证书 mTLS）；是否真正启用由 QE_P2P_ENABLED 决定。
+    let p2p_seeds: Arc<dyn SeedRegistry> = Arc::new(MtlsSeedRegistry::new(transport_config(
+        &credentials,
+        &config,
+    )));
+
     // 6. 下行分发：image.pull 串行执行；config.update 立即应用。
     let dispatcher = Arc::new(Dispatcher::new());
     let import_lock = Arc::new(tokio::sync::Mutex::new(()));
@@ -183,6 +205,8 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
         let reporter = Arc::clone(&reporter);
         let staging_root = staging_root.clone();
         let import_lock = Arc::clone(&import_lock);
+        let p2p_provider = p2p_provider.clone();
+        let p2p_seeds = Arc::clone(&p2p_seeds);
         dispatcher.subscribe("image.pull", move |message: DownlinkMessage| {
             let runtime_policy = Arc::clone(&runtime_policy);
             let config = config.clone();
@@ -192,6 +216,8 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
             let reporter = Arc::clone(&reporter);
             let staging_root = staging_root.clone();
             let import_lock = Arc::clone(&import_lock);
+            let p2p_provider = p2p_provider.clone();
+            let p2p_seeds = Arc::clone(&p2p_seeds);
             async move {
                 // 导入必须串行：docker load / incus image import / virsh vol-upload
                 // 同时跑会争抢同一份运行时状态。
@@ -202,7 +228,7 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
                 task_config.lxc_auto_start = current.lxc_auto_start;
                 // Puller 很轻（只持有 Arc 与启动时并发数）；按任务重建以套用
                 // 当前 lxc_auto_start，download_concurrency 仍按启动时策略。
-                let job = ImagePullJob::new(
+                let mut job = ImagePullJob::new(
                     Puller::new(
                         Arc::clone(&presign),
                         Arc::clone(&fetcher),
@@ -213,6 +239,11 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
                     Arc::clone(&reporter),
                     &staging_root,
                 );
+                if let Some(p2p) =
+                    resolve_p2p_distribution(p2p_provider.as_deref(), Arc::clone(&p2p_seeds))
+                {
+                    job = job.with_p2p(p2p);
+                }
                 match job.run(&message.payload).await {
                     Ok(outcome) if outcome.ok => info!(
                         transfer_id = %outcome.transfer_id,
@@ -303,6 +334,22 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
     // 未送达的上行消息已持久化在 outbox，下次启动或下一次上报时重放。
     drop(outbox);
     Ok(())
+}
+
+/// 解析本次 pull 的 P2P 上下文：开关关闭 / 节点未就绪都返回 `None`（回退 HTTP，不 panic）。
+fn resolve_p2p_distribution(
+    provider: Option<&(dyn Fn() -> Option<Arc<qep2p::Node>> + Send + Sync)>,
+    seeds: Arc<dyn SeedRegistry>,
+) -> Option<Arc<P2pDistribution>> {
+    if !p2p_enabled_from_env() {
+        return None;
+    }
+    let Some(node) = provider.and_then(|provider| provider()) else {
+        warn!("QE_P2P_ENABLED=1 但 P2P 节点未启动（boot services 未就绪/启动失败），本次回退 HTTP");
+        return None;
+    };
+    let blobs: Arc<dyn crate::p2p::BlobExchange> = node;
+    Some(Arc::new(P2pDistribution::new(blobs, seeds)))
 }
 
 /// 构造一份 mTLS 传输配置（`TransportConfig` 不实现 Clone，按需构造）。

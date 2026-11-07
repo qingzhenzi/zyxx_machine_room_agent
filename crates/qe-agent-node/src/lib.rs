@@ -25,6 +25,7 @@ pub mod config;
 pub mod importer;
 pub mod job;
 pub mod manifest;
+pub mod p2p;
 pub mod policy;
 pub mod presign;
 pub mod pull;
@@ -36,10 +37,11 @@ pub use config::AgentConfig;
 pub use importer::{ImportRequest, ImportResult, ImporterSet, TopologyImporter};
 pub use job::{ImagePullJob, ImagePullPayload, JobOutcome};
 pub use manifest::{Manifest, ManifestChunk, ManifestRuntime};
+pub use p2p::{BlobExchange, MtlsSeedRegistry, P2pDistribution, PeerSeed, SeedRegistry};
 pub use policy::{MtlsAgentConfigClient, RuntimePolicy};
 pub use presign::{
     MtlsPresignClient, PresignClient, PresignKind, PresignReply, PresignRequest, UrlItem,
 };
 pub use pull::{HttpObjectFetcher, ObjectFetcher, PullRequest, PulledImage, Puller};
 pub use report::{CompletedPayload, MtlsReporter, Phase, ProgressEvent, ProgressPayload, Reporter};
-pub use run::{on_remote_policy_applied, run, run_with_config};
+pub use run::{P2pNodeProvider, on_remote_policy_applied, run, run_with_config, run_with_p2p};

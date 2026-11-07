@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
@@ -90,6 +91,10 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
     let machine_info = || qe_agent_telemetry::config::Config::from_env(&room_cli()).ok();
 
+    // P2P 节点由 boot services 在独立线程懒启动；node 角色每次 image.pull 时再取，
+    // 避免启动时序竞争（未启用 QE_P2P_ENABLED 时该 provider 不会被使用）。
+    let p2p_provider: qe_agent_node::P2pNodeProvider = Arc::new(crate::boot::services::p2p_node);
+
     // 引导流水线：IPC 已就绪（各角色上方 start_ipc），防火墙/展示层/检查/
     // 注册/服务检测顺序执行；阶段失败不阻塞 serve。
     let boot = crate::boot::pipeline::spawn(data_dir.clone(), effective_slot.clone());
@@ -117,7 +122,10 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
             }
             let config =
                 node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
-            block_on(qe_agent_node::run_with_config(config))
+            block_on(qe_agent_node::run_with_p2p(
+                config,
+                Some(Arc::clone(&p2p_provider)),
+            ))
         }
         Role::Machine => {
             if let Some(socket) = opts.ipc_socket.as_deref() {
@@ -179,7 +187,10 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
             let config =
                 node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
-            block_on(qe_agent_node::run_with_config(config))
+            block_on(qe_agent_node::run_with_p2p(
+                config,
+                Some(Arc::clone(&p2p_provider)),
+            ))
         }
     }
 }

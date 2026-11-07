@@ -43,7 +43,11 @@ pub struct CliCtx {
 }
 
 pub fn run(ctx: CliCtx) -> Result<()> {
-    let CliCtx { cmd, data_dir, slot } = ctx;
+    let CliCtx {
+        cmd,
+        data_dir,
+        slot,
+    } = ctx;
 
     match cmd {
         CliCmd::Enroll {

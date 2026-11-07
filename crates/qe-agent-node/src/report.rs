@@ -105,6 +105,9 @@ pub struct CompletedPayload {
     pub verified: bool,
     pub imported_ref: Option<String>,
     pub error: Option<String>,
+    /// 产物来源：`p2p` / `http`。可选字段（旧服务端忽略未知字段）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl CompletedPayload {
@@ -121,7 +124,14 @@ impl CompletedPayload {
             verified: true,
             imported_ref: Some(imported_ref.into()),
             error: None,
+            source: None,
         }
+    }
+
+    /// 标记产物来源（`p2p` / `http`）。
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
     }
 
     /// 失败：`ok=false, verified=false`，保留 manifest digest 便于服务端定位。
@@ -137,6 +147,7 @@ impl CompletedPayload {
             verified: false,
             imported_ref: None,
             error: Some(error.into()),
+            source: None,
         }
     }
 }

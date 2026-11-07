@@ -25,12 +25,7 @@ pub struct CapStatus {
 
 /// 探测全部守护进程能力（快照，不阻塞遥测）。
 pub fn probe(data_dir: &Path) -> Vec<CapStatus> {
-    vec![
-        security(),
-        containers(),
-        virt(),
-        transfer(data_dir),
-    ]
+    vec![security(), containers(), virt(), transfer(data_dir)]
 }
 
 /// 打印能力快照（`qe-agent cli status` 用）。
@@ -106,7 +101,11 @@ fn transfer(data_dir: &Path) -> CapStatus {
         Ok(id) => CapStatus {
             name: "qep2p P2P 传输",
             available: true,
-            detail: format!("节点身份就绪（{}…，{}）", qep2p::short_id(&id), state_dir.display()),
+            detail: format!(
+                "节点身份就绪（{}…，{}）",
+                qep2p::short_id(&id),
+                state_dir.display()
+            ),
         },
         Err(error) => CapStatus {
             name: "qep2p P2P 传输",
