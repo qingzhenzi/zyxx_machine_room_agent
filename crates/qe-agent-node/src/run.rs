@@ -441,12 +441,33 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
     // 6.2 config.update：校验完整策略后替换；坏 payload 返回 Err → 不 ack，下轮重投。
     {
         let runtime_policy = Arc::clone(&runtime_policy);
+        let policy_dir = config.data_dir.clone();
         dispatcher.subscribe("config.update", move |message: DownlinkMessage| {
             let runtime_policy = Arc::clone(&runtime_policy);
+            let policy_dir = policy_dir.clone();
             async move {
                 match policy::handle_config_update(&message.payload, &runtime_policy) {
                     Ok(change) => {
                         notify_remote_policy(change.current.telemetry_full_interval_secs);
+                        // 遥测线程独立运行；把两档间隔写到文件，线程会在 500ms 内应用。
+                        let path = policy_dir.join("telemetry.intervals.json");
+                        let payload = serde_json::json!({
+                            "fast_secs": change.current.telemetry_fast_interval_secs,
+                            "full_secs": change.current.telemetry_full_interval_secs,
+                        });
+                        if let Err(error) = std::fs::write(&path, payload.to_string()) {
+                            warn!(
+                                path = %path.display(),
+                                %error,
+                                "写遥测间隔配置失败；继续使用旧间隔"
+                            );
+                        } else {
+                            info!(
+                                fast_secs = change.current.telemetry_fast_interval_secs,
+                                full_secs = change.current.telemetry_full_interval_secs,
+                                "已下发遥测间隔，等待遥测线程应用"
+                            );
+                        }
                         Ok(())
                     }
                     Err(error) => {

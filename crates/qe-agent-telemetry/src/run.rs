@@ -137,6 +137,7 @@ fn run_daemon(
     let mut next_full = Instant::now();
     // 下行 `telemetry.report` 命令由 agent-node 写到该文件；遥测线程发现后立即跑一次 fast。
     let trigger_path = config.data_dir.join("telemetry.report.request");
+    let interval_path = config.data_dir.join("telemetry.intervals.json");
     let mut fast_round: u64 = 0;
     let mut full_round: u64 = 0;
     let mut fast_cycles_since_refresh: u64 = 0;
@@ -156,6 +157,32 @@ fn run_daemon(
             std::thread::sleep((next - now).min(Duration::from_millis(500)));
         }
         let now = Instant::now();
+
+        // config.update（服务端下发）写入新的 fast/full 间隔；同步到本循环。
+        if let Ok(raw) = std::fs::read(&interval_path) {
+            let _ = std::fs::remove_file(&interval_path);
+            match serde_json::from_slice::<serde_json::Value>(&raw) {
+                Ok(value) => {
+                    let fast = value.get("fast_secs").and_then(serde_json::Value::as_u64);
+                    let full = value.get("full_secs").and_then(serde_json::Value::as_u64);
+                    if let (Some(fast), Some(full)) = (fast, full)
+                        && fast >= 1
+                        && full >= 60
+                        && full >= fast
+                    {
+                        intervals = TelemetryIntervals {
+                            fast_secs: fast,
+                            full_secs: full,
+                        };
+                        next_fast = now + Duration::from_secs(fast);
+                        info!(fast_secs = fast, full_secs = full, "已应用服务端下发的遥测间隔");
+                    } else {
+                        warn!(?fast, ?full, "忽略非法的遥测间隔下发");
+                    }
+                }
+                Err(error) => warn!(%error, "解析遥测间隔下发失败"),
+            }
+        }
 
         let forced_fast = std::fs::remove_file(&trigger_path).is_ok();
         if forced_fast {
