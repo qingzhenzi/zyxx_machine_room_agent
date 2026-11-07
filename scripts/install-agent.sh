@@ -177,7 +177,14 @@ if [[ "${INSTALL_GUI}" -eq 1 ]]; then
         install -m 0755 "${GUI_BIN}" "${BIN_DIR}/qe-agent-client"
         ICON_DIR="/usr/share/icons/hicolor/128x128/apps"
         DESKTOP_DIR="/usr/share/applications"
-        install -d -m 0755 "${ICON_DIR}" "${DESKTOP_DIR}"
+        RESOURCE_DIR="/usr/share/qe-agent-client"
+        install -d -m 0755 "${ICON_DIR}" "${DESKTOP_DIR}" "${RESOURCE_DIR}"
+        install -m 0755 "${REPO_ROOT}/apps/agent-client/src-tauri/resources/agent-setup.sh" \
+            "${RESOURCE_DIR}/agent-setup.sh"
+        install -m 0644 "${REPO_ROOT}/apps/agent-client/src-tauri/resources/qe-agent.service" \
+            "${RESOURCE_DIR}/qe-agent.service"
+        install -m 0644 "${REPO_ROOT}/apps/agent-client/src-tauri/resources/qe-agent.env.example" \
+            "${RESOURCE_DIR}/qe-agent.env.example"
         install -m 0644 "${REPO_ROOT}/apps/agent-client/src-tauri/icons/128x128.png" \
             "${ICON_DIR}/qe-agent-client.png"
         install -m 0644 "${REPO_ROOT}/apps/agent-client/deploy/qe-agent-client.desktop" \
