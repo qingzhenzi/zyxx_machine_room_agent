@@ -2,7 +2,17 @@
 
 :root {
   color-scheme: dark;
-  font-family: 'Inter', 'SF Pro Text', ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* 标准蓝白灰：冷静、无装饰 */
+  --bg: #0f141a;
+  --ink: #e8edf2;
+  --ink-soft: #aab6c2;
+  --ink-faint: #6e7a87;
+  --blue: #3b82f6;
+  --blue-soft: #2563eb;
+  --line: #1d2530;
+
+  font-family: 'Inter', 'SF Pro Text', ui-sans-serif, system-ui, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
 }
 
 html,
@@ -14,18 +24,51 @@ body,
 }
 
 body {
-  background: #0c0e11;
-  color: #eef1f5;
+  background: var(--bg);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
 }
 
-@keyframes slide {
+/* 入场：轻微上移 + 淡入，一次即可，不循环 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 不确定进度：细条来回扫，慢速低亮度 */
+@keyframes sweep {
   0% {
-    left: -33%;
+    transform: translateX(-100%);
   }
   100% {
-    left: 100%;
+    transform: translateX(400%);
   }
+}
+
+.sweep-bar {
+  animation: sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.rise {
+  animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.rise-1 {
+  animation-delay: 0.08s;
+}
+
+.rise-2 {
+  animation-delay: 0.16s;
+}
+
+.rise-3 {
+  animation-delay: 0.24s;
 }

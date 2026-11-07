@@ -7,20 +7,22 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center justify-center gap-8">
-    <div class="flex flex-col items-center gap-4">
-      <div class="text-5xl font-semibold tracking-wide">QEStudio</div>
-      <div class="h-8 w-px animate-pulse bg-[#e8b04b]" aria-hidden="true" />
-    </div>
-    <div class="flex flex-col items-center gap-2">
-      <p class="text-lg text-[#c3cad4]">{{ message }}</p>
-      <p v-if="detail" class="text-sm text-[#8a94a3]">{{ detail }}</p>
+  <div class="flex h-full flex-col items-center justify-center">
+    <div class="flex flex-col items-center">
+      <div class="rise text-[4.2vw] font-medium tracking-[0.2em] leading-none">QESTUDIO</div>
+      <div class="rise rise-1 mt-[3.2vw] h-px w-[22vw] overflow-hidden bg-[var(--line)]">
+        <div class="sweep-bar h-px w-1/4 bg-[var(--blue)]" />
+      </div>
+      <p class="rise rise-2 mt-[3.2vw] text-[1.35vw] text-[var(--ink-soft)]">{{ message }}</p>
+      <p v-if="detail" class="rise rise-3 mt-[0.9vw] text-[0.95vw] text-[var(--ink-faint)]">
+        {{ detail }}
+      </p>
     </div>
     <div
-      class="absolute bottom-4 text-xs"
-      :class="connected ? 'text-[#4ecb8d]' : 'text-[#f06a6a]'"
+      v-if="!connected"
+      class="absolute bottom-[2.2vw] text-[0.85vw] tracking-wide text-[var(--ink-faint)] opacity-70"
     >
-      {{ connected ? 'agent 已连接' : '等待 agent…' }}
+      等待 agent 连接…
     </div>
   </div>
 </template>

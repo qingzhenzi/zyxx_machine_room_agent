@@ -76,7 +76,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
     let effective_slot = opts.device_slot.clone().or_else(|| slot.clone());
 
-    let room_cli = || qe_room_agent::cli::Cli {
+    let room_cli = || qe_agent_telemetry::cli::Cli {
         once: false,
         print: false,
         interval_secs: None,
@@ -88,7 +88,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
         help: false,
     };
 
-    let machine_info = || qe_room_agent::config::Config::from_env(&room_cli()).ok();
+    let machine_info = || qe_agent_telemetry::config::Config::from_env(&room_cli()).ok();
 
     // 引导流水线：IPC 已就绪（各角色上方 start_ipc），防火墙/展示层/检查/
     // 注册/服务检测顺序执行；阶段失败不阻塞 serve。
@@ -96,7 +96,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
     // 远端 config.update 下发成功后联动 boot 周期检查：full 档间隔即
     // "周期性深度检查"节奏，直接作为 checks 复检间隔。
-    qe_node_agent::on_remote_policy_applied({
+    qe_agent_node::on_remote_policy_applied({
         let boot_handle = boot.clone();
         move |full_interval_secs| boot_handle.set_checks_interval(full_interval_secs)
     });
@@ -117,7 +117,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
             }
             let config =
                 node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
-            block_on(qe_node_agent::run_with_config(config))
+            block_on(qe_agent_node::run_with_config(config))
         }
         Role::Machine => {
             if let Some(socket) = opts.ipc_socket.as_deref() {
@@ -139,7 +139,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
                     boot: Some(boot.clone()),
                 })?;
             }
-            let code = qe_room_agent::run_with_cli(room_cli());
+            let code = qe_agent_telemetry::run_with_cli(room_cli());
             if code != 0 {
                 std::process::exit(code);
             }
@@ -170,7 +170,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
             std::thread::Builder::new()
                 .name("qe-agent-machine".to_owned())
                 .spawn(move || {
-                    let code = qe_room_agent::run_with_cli(machine_cli);
+                    let code = qe_agent_telemetry::run_with_cli(machine_cli);
                     if code != 0 {
                         std::process::exit(code);
                     }
@@ -179,7 +179,7 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
 
             let config =
                 node_config(&data_dir, effective_slot.as_deref()).context("读取 agent 配置失败")?;
-            block_on(qe_node_agent::run_with_config(config))
+            block_on(qe_agent_node::run_with_config(config))
         }
     }
 }
@@ -222,10 +222,10 @@ fn start_ipc(args: IpcArgs<'_>) -> Result<()> {
 fn node_config(
     data_dir: &std::path::Path,
     slot: Option<&str>,
-) -> Result<qe_node_agent::AgentConfig> {
+) -> Result<qe_agent_node::AgentConfig> {
     let data_dir = data_dir.to_path_buf();
     let slot = slot.map(ToOwned::to_owned);
-    qe_node_agent::AgentConfig::from_lookup(move |key| match key {
+    qe_agent_node::AgentConfig::from_lookup(move |key| match key {
         "DEVICE_DATA_DIR" => Some(data_dir.display().to_string()),
         "DEVICE_SLOT" => slot.clone().or_else(|| std::env::var("DEVICE_SLOT").ok()),
         other => std::env::var(other).ok(),

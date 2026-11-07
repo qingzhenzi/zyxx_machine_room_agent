@@ -32,6 +32,11 @@ impl PipelineHandle {
         }
     }
 
+    /// 推送展示层指令（版本自增，boot-display 轮询到即切换模板）。
+    pub fn push_display(&self, template: &str, params: serde_json::Value) {
+        self.state.push_display(template, params);
+    }
+
     /// 当前周期检查间隔（IPC 查询用）。
     pub fn monitor_interval_secs(&self) -> u64 {
         self.monitor
@@ -105,6 +110,6 @@ fn run_all(state: SharedState, config: BootConfig, data_dir: PathBuf, slot: Opti
     // 5. 注册（配置不足/失败都不阻塞）。
     enroll::run(&state, &data_dir, slot.as_deref());
 
-    // 6. 服务。
-    services::run(&state);
+    // 6. 服务（P2P 真启动；容器/虚拟化深度探测）。
+    services::run(&state, &data_dir);
 }

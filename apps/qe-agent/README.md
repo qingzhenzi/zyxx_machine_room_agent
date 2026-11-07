@@ -14,8 +14,8 @@
 它把原先三个可执行文件收口为一个入口：
 
 - `qe-device-pki-client` 的 enroll/凭证能力 → `qe-agent enroll` / `qe-agent status`；
-- `qe-node-agent` 的镜像与控制面逻辑 → `qe-agent run --role node`（复用 `qe-node-agent` 库）；
-- `qe-room-agent` 的遥测逻辑 → `qe-agent run --role machine`（复用 `qe-room-agent` 库）。
+- `qe-agent-node` 的镜像与控制面逻辑 → `qe-agent run --role node`（复用 `qe-agent-node` 库）；
+- `qe-agent-telemetry` 的遥测逻辑 → `qe-agent run --role machine`（复用 `qe-agent-telemetry` 库）。
 
 守护进程能力层（库内直调，不 spawn 子进程）：`qeaudit`（安全基线）、
 `qe-container`（容器）、`virt-*`（虚拟化）、`qep2p`（P2P 传输）全部以库形式链入，
@@ -144,7 +144,7 @@ QE_AGENT_IPC_SOCKET=/tmp/qe-agent-dev.sock pnpm tauri dev   # 在 agent-client �
   `cache_max_bytes`；遥测：`telemetry_fast_interval_secs` / `telemetry_full_interval_secs`）
   优先级：内置默认 < 本机配置文件 < 显式 env < 服务端
   （global → area → room → device，device 覆盖最后生效）；
-- 具体字段与范围见 [qe-node-agent 配置](../../crates/qe-node-agent/README.md#配置) 与
+- 具体字段与范围见 [qe-agent-node 配置](../../crates/qe-agent-node/README.md#配置) 与
   [machine-telemetry.md](../../../room_node/room_node_backend/docs/machine-telemetry.md)。
 
 ---
@@ -153,7 +153,7 @@ QE_AGENT_IPC_SOCKET=/tmp/qe-agent-dev.sock pnpm tauri dev   # 在 agent-client �
 
 ```bash
 cargo build -p qe-agent
-cargo test -p qe-agent -p qe-node-agent -p qe-room-agent
+cargo test -p qe-agent -p qe-agent-node -p qe-agent-telemetry
 cargo clippy -p qe-agent --all-targets -- -D warnings
 ```
 
@@ -176,19 +176,19 @@ DEVICE_DATA_DIR=/var/lib/qe-agent qe-agent run --role machine --once
 
 | 旧入口 | 新入口 | 兼容期 |
 | --- | --- | --- |
-| `qe-node-agent` | `qe-agent run --role node` | 旧二进制保留，P4 标 deprecated 后移除 |
-| `qe-room-agent` | `qe-agent run --role machine` | 同上 |
+| `qe-agent-node` | `qe-agent run --role node` | 旧二进制保留，P4 标 deprecated 后移除 |
+| `qe-agent-telemetry` | `qe-agent run --role machine` | 同上 |
 | `qe-device-pki-client enroll/status` | `qe-agent enroll/status` | CLI 保留用于联调 |
 
-systemd 迁移：`qe-room-agent.service` → `qe-agent.service`（`--role both`）；
+systemd 迁移：`qe-agent-telemetry.service` → `qe-agent.service`（`--role both`）；
 node-agent 目前无 unit（手工启动），迁移时一并并到这个单元。
 
 ### 退场时间表（P4）
 
 | 版本 | 状态 | 动作 |
 | --- | --- | --- |
-| v0.1（当前） | 过渡 | 默认 mTLS / `--role both`；`qe-node-agent`、`qe-room-agent` 保留为**弃用 shim**（启动打印提示）；Bearer fleet token 仅作回退 |
-| v0.2 | 删除旧入口 | 移除 `qe-node-agent`/`qe-room-agent` 二进制（保留库 crate），部署/CI/文档只认 `qe-agent` |
+| v0.1（当前） | 过渡 | 默认 mTLS / `--role both`；`qe-agent-node`、`qe-agent-telemetry` 保留为**弃用 shim**（启动打印提示）；Bearer fleet token 仅作回退 |
+| v0.2 | 删除旧入口 | 移除 `qe-agent-node`/`qe-agent-telemetry` 二进制（保留库 crate），部署/CI/文档只认 `qe-agent` |
 | v0.2+ | 删除旧认证 | 所有设备迁移到 mTLS 后，移除 `MACHINE_AGENT_TOKEN` 与 qe-api 的 Bearer `/api/v1/machine/report` |
 
 删除条件：管理端 `/admin/devices` 没有 Bearer 设备流量；所有 systemd/脚本已指向

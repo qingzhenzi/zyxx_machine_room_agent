@@ -62,11 +62,28 @@
   ```
 
 * **远端联动**：控制服务器通过下行 `config.update` 更新策略后，
-  `qe-node-agent` 触发 `on_remote_policy_applied(full_interval_secs)` 钩子，
+  `qe-agent-node` 触发 `on_remote_policy_applied(full_interval_secs)` 钩子，
   serve 里把它接到 `boot.set_checks_interval` —— 服务端只需调
   `telemetry_full_interval_secs` 就同时控制遥测深度与本机复检节奏。
   另外遥测 full 档本身已周期性聚合 platform-health / diagnose / qeaudit，
   两条路径互补：`/v1/state` 面向本机 GUI，遥测面向控制服务器。
+
+## 展示层模板与推送
+
+模板体系（agent 决定，boot-display 只渲染）：
+
+| template   | params                                  | 用途             |
+|------------|------------------------------------------|------------------|
+| `boot`     | `message` / `detail`                     | 启动画面         |
+| `progress` | `message` / `detail` / `progress`(0-100|null) | 进度条     |
+| `idle`     | `message` / `detail`                     | 待机时钟         |
+| `message`  | `title` / `body` / `lines[]`             | 纯文本告示       |
+| `enroll`   | `state`(pending/failed/ok) / `detail`    | 注册流程状态     |
+
+推送：`POST /v1/display {"template": "...", "params": {...}}`——agent 内部
+任意模块（enroll 流程、远端下发指令、CLI 工具）都可调用；每次推送版本号
+自增，boot-display 轮询到版本变化即切换模板（仍是 1s 轮询 UDS，webview
+不接触 socket，但模板与文案完全由 agent 控制）。
 
 ## boot-display supervise
 

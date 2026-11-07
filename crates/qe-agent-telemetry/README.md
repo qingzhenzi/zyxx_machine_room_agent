@@ -1,7 +1,7 @@
 > **已并入统一入口（P4 退场）**：新部署请用 [`qe-agent`](../agent/README.md) 的
 > `qe-agent run --role machine`（或 `--role both`）；本 crate 作为库实现继续维护。
 
-# qe-room-agent（房间机器遥测 agent，v1.1）
+# qe-agent-telemetry（房间机器遥测 agent，v1.1）
 
 房间内「子机器端」agent：周期性采集主机清单、内置指标、健康结论与能力采集
 （安全基线 qeaudit / 容器 qe-container / 虚机 virt-libvirt —— **进程内库直调**；
@@ -45,8 +45,8 @@ room-agent（每个房间机器）
 
 ```bash
 # workspace 根目录
-cargo build -p qe-room-agent --release
-sudo install -m 0755 target/release/qe-room-agent /usr/local/bin/qe-room-agent
+cargo build -p qe-agent-telemetry --release
+sudo install -m 0755 target/release/qe-agent-telemetry /usr/local/bin/qe-agent-telemetry
 ```
 
 要求 Rust 1.88+（workspace `rust-version`；edition 2024）。
@@ -117,30 +117,30 @@ full 周期。缓存与 full 档共享：full 档刚刷新过则该次规则触�
 
 ```bash
 # 只采集并打印 payload（不发请求；--print 模式下可省略 token）
-./target/debug/qe-room-agent --once --print --device-slot room-101
+./target/debug/qe-agent-telemetry --once --print --device-slot room-101
 
 # 本机指向外部工具的 release 二进制（platform-health / diagnose 仍是外部命令；
 # qeaudit 默认进程内库直调，这里设 QEAUDIT_BIN 只为验证 CLI 回退路径）
 PLATFORM_HEALTH_BIN=/home/qingzhenzi/Projects/QEStudio/common/platform-health/target/release/platform-health \
 PLATFORM_DIAGNOSE_BIN=/home/qingzhenzi/Projects/QEStudio/common/platform-diagnose/target/release/platform-diagnose \
 QEAUDIT_BIN=/home/qingzhenzi/Projects/QEStudio/room_agent/target/release/qeaudit \
-./target/debug/qe-room-agent --once --print --device-slot room-101 | jq '.sections.agent.tools'
+./target/debug/qe-agent-telemetry --once --print --device-slot room-101 | jq '.sections.agent.tools'
 
 # 真实上报一轮（mTLS，需先 qe-agent enroll 拿证书；失败非 0）
 DEVICE_PKI_MTLS_URL=https://qe.example.com:4441 \
 DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
-./target/debug/qe-room-agent --once
+./target/debug/qe-agent-telemetry --once
 
 # 兼容 bearer 模式
 REPORT_MODE=bearer \
 MACHINE_API_BASE=http://127.0.0.1:8080/api/v1 \
 MACHINE_AGENT_TOKEN=<fleet-token> DEVICE_SLOT=room-101 \
-./target/debug/qe-room-agent --once
+./target/debug/qe-agent-telemetry --once
 
 # daemon（systemd 用；不要在前台验证时乱启动常驻循环）
 DEVICE_PKI_MTLS_URL=https://qe.example.com:4441 \
 DEVICE_SLOT=room-101 DEVICE_DATA_DIR=/var/lib/qe-agent \
-./target/debug/qe-room-agent
+./target/debug/qe-agent-telemetry
 ```
 
 `--print` 的 JSON 固定写 stdout；日志固定写 stderr，因此
@@ -299,9 +299,9 @@ VIRSH_BIN=/usr/bin/virsh
 
 ```bash
 sudo install -d -m 0755 /etc/systemd/system
-sudo install -m 0644 deploy/room-agent.service.example /etc/systemd/system/qe-room-agent.service
-sudo install -m 0600 /dev/null /etc/qe-room-agent.env
-sudo tee /etc/qe-room-agent.env >/dev/null <<'EOF'
+sudo install -m 0644 deploy/room-agent.service.example /etc/systemd/system/qe-agent-telemetry.service
+sudo install -m 0600 /dev/null /etc/qe-agent-telemetry.env
+sudo tee /etc/qe-agent-telemetry.env >/dev/null <<'EOF'
 REPORT_MODE=mtls
 DEVICE_PKI_MTLS_URL=https://qe.example.com:4441
 DEVICE_SLOT=room-101
@@ -312,8 +312,8 @@ PLATFORM_HEALTH_BIN=/opt/qe/bin/platform-health
 PLATFORM_DIAGNOSE_BIN=/opt/qe/bin/platform-diagnose
 EOF
 sudo systemctl daemon-reload
-sudo systemctl enable --now qe-room-agent
-journalctl -u qe-room-agent -f
+sudo systemctl enable --now qe-agent-telemetry
+journalctl -u qe-agent-telemetry -f
 ```
 
 `--print` 不需要证书/token。mTLS 模式下证书由 `qe-agent enroll` 写入
@@ -335,16 +335,16 @@ bearer 模式仍用 `EnvironmentFile` 注入 token，避免 token 出现在
   并用 `ROOM_AGENT_DISABLE_*` 关闭用不到的工具（最小权限）。
 - agent 不写入磁盘、不做持久化队列；SIGTERM 由 systemd 直接终止，重启后重新采集。
 - mTLS 复用了 `qe-device-pki-client` 的信任配置：设备证书作为客户端身份，
-  `ca-chain.pem` 作为服务端校验根，与 `qe-node-agent` 完全一致。
+  `ca-chain.pem` 作为服务端校验根，与 `qe-agent-node` 完全一致。
 
 ---
 
 ## 9. 测试
 
 ```bash
-cargo build -p qe-room-agent
-cargo test -p qe-room-agent
-cargo clippy -p qe-room-agent --all-targets -- -D warnings
+cargo build -p qe-agent-telemetry
+cargo test -p qe-agent-telemetry
+cargo clippy -p qe-agent-telemetry --all-targets -- -D warnings
 ```
 
 测试覆盖：`/proc`/`df`/`hwmon` 解析、CPU 使用率差分、内存/磁盘/温度/load 阈值、

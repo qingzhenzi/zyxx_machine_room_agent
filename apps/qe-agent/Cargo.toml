@@ -12,11 +12,12 @@ description = "QEStudio 统一机器 agent 客户端：device-pki mTLS 注册、
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 qe-device-pki-client = { path = "../../crates/qe-device-pki-client" }
-qe-node-agent = { path = "../../crates/qe-node-agent" }
-qe-room-agent = { path = "../../crates/qe-room-agent" }
+qe-agent-node = { path = "../../crates/qe-agent-node" }
+qe-agent-telemetry = { path = "../../crates/qe-agent-telemetry" }
 # 守护进程能力库（进程内直接使用）：安全核查 / 容器 / 虚拟化 / P2P 传输。
 qeaudit = { path = "../../crates/qeaudit" }
 platform-health = { path = "../../crates/platform-health" }
+platform-diagnose = { path = "../../crates/platform-diagnose" }
 qe-nftables = { path = "../../crates/qe-nftables" }
 which = "7"
 qe-container = { path = "../../crates/qe-container" }

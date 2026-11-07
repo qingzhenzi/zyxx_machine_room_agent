@@ -3,7 +3,7 @@
 //! 聚合三个既有 crate 的结果，产出可经 IPC 查询的检查摘要：
 //! * `platform-health` — 设备事实快照 + 健康评分
 //! * `qeaudit`         — 安全基线扫描
-//! * `platform-diagnose` — 一次性采样诊断
+//! * `platform-diagnose` — 短窗采样诊断（Sweep，默认 3s 窗 / 500ms 间隔）
 
 use serde_json::{Value, json};
 
@@ -37,7 +37,18 @@ pub fn run_full_checks() -> CheckOutcome {
         issues.push(format!("{high} 项高危基线问题"));
     }
 
-    // 3) 虚拟化能力探测（KVM 设备可读写）。
+    // 3) platform-diagnose：短窗采样 + 诊断（Lag 综合症状覆盖 CPU/内存/IO/温控规则）。
+    let mut diagnoser = platform_diagnose::Diagnoser::new(platform_diagnose::Options::default());
+    let diagnosis = diagnoser.sweep(
+        &platform_diagnose::Symptom::Lag,
+        std::time::Duration::from_secs(3),
+        std::time::Duration::from_millis(500),
+    );
+    if !diagnosis.findings.is_empty() {
+        issues.push(format!("诊断 {} 项发现", diagnosis.findings.len()));
+    }
+
+    // 4) 虚拟化能力探测（KVM 设备可读写）。
     let kvm = kvm_available();
 
     let passed = issues.is_empty();
@@ -56,6 +67,11 @@ pub fn run_full_checks() -> CheckOutcome {
             "audit": {
                 "findings": findings.len(),
                 "high": high,
+            },
+            "diagnose": {
+                "verdict": diagnosis.summary,
+                "samples": diagnosis.samples,
+                "findings": diagnosis.findings.len(),
             },
             "virtualization": kvm,
         }),

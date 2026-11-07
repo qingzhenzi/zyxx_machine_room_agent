@@ -4126,12 +4126,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "platform-diagnose",
  "platform-health",
+ "qe-agent-node",
+ "qe-agent-telemetry",
  "qe-container",
  "qe-device-pki-client",
  "qe-nftables",
- "qe-node-agent",
- "qe-room-agent",
  "qeaudit",
  "qep2p",
  "rustls",
@@ -4145,6 +4146,53 @@ dependencies = [
  "virt-crate",
  "virt-libvirt",
  "which",
+]
+
+[[package]]
+name = "qe-agent-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "ed25519-dalek 2.2.0",
+ "futures-util",
+ "hex",
+ "qe-device-pki-client",
+ "qe-domain",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "qe-agent-telemetry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "qe-container",
+ "qe-device-pki-client",
+ "qe-domain",
+ "qeaudit",
+ "rcgen 0.13.2",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "virt-core",
+ "virt-libvirt",
 ]
 
 [[package]]
@@ -4305,53 +4353,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "which",
-]
-
-[[package]]
-name = "qe-node-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "ed25519-dalek 2.2.0",
- "futures-util",
- "hex",
- "qe-device-pki-client",
- "qe-domain",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "qe-room-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "qe-container",
- "qe-device-pki-client",
- "qe-domain",
- "qeaudit",
- "rcgen 0.13.2",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "virt-core",
- "virt-libvirt",
 ]
 
 [[package]]

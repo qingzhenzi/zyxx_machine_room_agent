@@ -506,7 +506,11 @@ fn container_value(container: &qe_container::ContainerSummary) -> Value {
     if !state.is_null() {
         map.insert("state".to_owned(), state);
     }
-    if let Some(status) = container.status.as_deref().filter(|status| !status.is_empty()) {
+    if let Some(status) = container
+        .status
+        .as_deref()
+        .filter(|status| !status.is_empty())
+    {
         map.insert("status".to_owned(), json!(status));
     }
     if !container.id.is_empty() {
@@ -878,7 +882,7 @@ mod tests {
         let config = config_with(&[
             (
                 "PLATFORM_HEALTH_BIN",
-                "/nonexistent/qe-room-agent-platform-health",
+                "/nonexistent/qe-agent-telemetry-platform-health",
             ),
             ("ROOM_AGENT_DISABLE_DIAGNOSE", "true"),
             ("ROOM_AGENT_DISABLE_SECURITY", "true"),

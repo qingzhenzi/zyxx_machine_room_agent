@@ -17,24 +17,34 @@ const indeterminate = computed(() => props.progress === null)
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center justify-center gap-10 px-[15vw]">
-    <div class="text-center">
-      <h1 class="text-3xl font-medium">{{ message }}</h1>
-      <p v-if="detail" class="mt-3 text-sm text-[#8a94a3]">{{ detail }}</p>
+  <div class="flex h-full flex-col items-center justify-center">
+    <div class="w-[min(46vw,52rem)]">
+      <div class="rise flex items-baseline justify-between">
+        <h1 class="text-[2vw] font-medium leading-tight">{{ message }}</h1>
+        <span v-if="!indeterminate" class="text-[1.5vw] tabular-nums text-[var(--ink-soft)]">
+          {{ Math.round(clamped) }}<span class="text-[0.9vw] text-[var(--ink-faint)]">%</span>
+        </span>
+      </div>
+      <p v-if="detail" class="rise rise-1 mt-[1vw] text-[1.05vw] text-[var(--ink-faint)]">
+        {{ detail }}
+      </p>
+      <div class="rise rise-2 mt-[2.4vw] h-[0.35vw] min-h-[3px] overflow-hidden rounded-full bg-[var(--line)]">
+        <div
+          v-if="indeterminate"
+          class="sweep-bar h-full w-1/4 rounded-full bg-[var(--blue)]"
+        />
+        <div
+          v-else
+          class="h-full rounded-full bg-[var(--blue)] transition-[width] duration-500 ease-out"
+          :style="{ width: `${clamped}%` }"
+        />
+      </div>
     </div>
-    <div class="relative h-1.5 w-full overflow-hidden rounded-full bg-[#171b21]">
-      <div
-        v-if="indeterminate"
-        class="absolute inset-y-0 w-1/3 animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-[#e8b04b]"
-      />
-      <div
-        v-else
-        class="h-full rounded-full bg-[#e8b04b] transition-all duration-500"
-        :style="{ width: `${clamped}%` }"
-      />
-    </div>
-    <div class="absolute bottom-4 text-xs" :class="connected ? 'text-[#4ecb8d]' : 'text-[#f06a6a]'">
-      {{ connected ? 'agent 已连接' : '等待 agent…' }}
+    <div
+      v-if="!connected"
+      class="absolute bottom-[2.2vw] text-[0.85vw] text-[var(--ink-faint)] opacity-70"
+    >
+      等待 agent 连接…
     </div>
   </div>
 </template>

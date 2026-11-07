@@ -8,13 +8,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use qe_domain::agent_config::AgentPolicy;
-use qe_node_agent::BoxFuture;
-use qe_node_agent::config::AgentConfig;
-use qe_node_agent::policy::{
+use qe_agent_node::BoxFuture;
+use qe_agent_node::config::AgentConfig;
+use qe_agent_node::policy::{
     AgentConfigClient, AgentConfigReply, RuntimePolicy, fetch_and_apply, handle_config_update,
     validate_complete_policy,
 };
+use qe_domain::agent_config::AgentPolicy;
 
 /// 用内存 map 模拟 env：不改写进程环境，测试可并行。
 fn lookup_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {

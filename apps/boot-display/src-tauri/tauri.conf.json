@@ -17,14 +17,13 @@
         "fullscreen": true,
         "decorations": false,
         "resizable": false,
-        "alwaysOnTop": true,
-        "focusable": false,
         "visible": true,
-        "center": true
+        "center": true,
+        "alwaysOnTop": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "csp": null,
       "devCsp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:1430 ws://localhost:1430; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     }
   },

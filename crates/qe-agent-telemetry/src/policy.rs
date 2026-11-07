@@ -1,6 +1,6 @@
 //! 运行时策略（契约 v1.1）：启动时通过 mTLS `GET /agent/config` 拉取两档上报间隔。
 //!
-//! 优先级与 `qe-node-agent` 一致：**远端策略 > 本地显式 env > 内置默认**。
+//! 优先级与 `qe-agent-node` 一致：**远端策略 > 本地显式 env > 内置默认**。
 //! 拉取失败只 `warn!`，继续用本地间隔，绝不阻塞上报。
 //!
 //! 远端只覆盖可下发字段（[`TelemetryIntervals`] 两个间隔）；mTLS 端点、slot、

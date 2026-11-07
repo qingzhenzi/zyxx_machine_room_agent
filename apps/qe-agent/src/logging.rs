@@ -107,7 +107,7 @@ impl<'a> MakeWriter<'a> for TeeMakeWriter {
 /// 安装带环形缓冲的 tracing subscriber（只应调用一次；失败静默，保持进程可用）。
 pub fn init(buffer: LogBuffer) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new("info,qe_agent=debug,qe_node_agent=debug,qe_room_agent=debug")
+        EnvFilter::new("info,qe_agent=debug,qe_agent_node=debug,qe_agent_telemetry=debug")
     });
     let make = TeeMakeWriter::new(buffer);
     let _ = tracing_subscriber::fmt()

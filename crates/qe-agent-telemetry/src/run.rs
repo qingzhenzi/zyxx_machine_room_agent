@@ -1,4 +1,4 @@
-//! 运行入口：独立二进制 `qe-room-agent` 与统一入口 `qe-agent` 共用。
+//! 遥测角色运行入口；由统一入口 `qe-agent --role machine` 调用。
 //!
 //! 调度（契约 v1.1）：
 //! - fast 档：每 `fast_interval_secs`（默认 10s）采一份内置指标上报；
@@ -23,7 +23,7 @@ use crate::external::ToolsCache;
 use crate::policy::{self, TelemetryIntervals};
 use crate::report::Sender;
 
-/// 解析 CLI 参数并运行（独立二进制入口）。
+/// 解析 CLI 参数并运行（`run_with_cli` 的便捷包装，测试用）。
 pub fn run_from_args(args: Vec<String>) -> i32 {
     // rustls 依赖树里同时存在 aws-lc-rs 与 ring 时无法自动选 provider，必须显式安装。
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -70,7 +70,7 @@ fn run_agent(config: &Config) -> i32 {
         full_interval_secs = config.full_interval_secs,
         once = config.once,
         print = config.print,
-        "启动 qe-room-agent"
+        "启动 qe-agent-telemetry"
     );
     if config.print {
         info!("--print 模式：payload 输出到 stdout，不发送");
@@ -308,7 +308,7 @@ fn run_round(
 fn init_tracing() {
     // 日志写 stderr：`--print` 的 stdout 必须是可被 jq 解析的纯 JSON。
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,qe_room_agent=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,qe_agent_telemetry=debug"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

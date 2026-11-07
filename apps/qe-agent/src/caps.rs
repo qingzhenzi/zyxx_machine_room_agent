@@ -5,7 +5,7 @@
 //! 这里给出各能力的可用性快照（`qe-agent status` 末尾展示），
 //! 供运维确认链路是否就绪。
 //!
-//! 遥测路径上的进程内调用见 `qe-room-agent::external`（安全/容器/虚机采集），
+//! 遥测路径上的进程内调用见 `qe-agent-telemetry::external`（安全/容器/虚机采集），
 //! 本模块负责能力的**就绪探测**，不做采集。
 
 use std::path::Path;

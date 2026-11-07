@@ -279,7 +279,7 @@ async fn build_metadata_tarball(request: &ImportRequest, name: &str) -> Result<P
     // Incus 使用 Rust 的 arch 命名（x86_64 / aarch64）即可。
     let arch = std::env::consts::ARCH;
     let description = yaml_escape(&format!(
-        "{} {} (qe-node-agent)",
+        "{} {} (qe-agent-node)",
         name,
         if request.version.trim().is_empty() {
             ""

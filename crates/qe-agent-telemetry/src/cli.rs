@@ -9,10 +9,10 @@ use anyhow::{Result, bail};
 
 /// 支持的帮助文本。
 pub const USAGE: &str = "\
-qe-room-agent —— QEStudio 房间机器遥测 agent
+qe-agent-telemetry —— QEStudio 房间机器遥测 agent
 
 用法:
-  qe-room-agent [--once] [--print] [--fast-interval <秒>] [--full-interval <秒>]
+  qe-agent-telemetry [--once] [--print] [--fast-interval <秒>] [--full-interval <秒>]
                 [--report-mode <mtls|bearer>] [--device-slot <槽位>] [--data-dir <目录>]
 
 选项:
@@ -36,8 +36,8 @@ qe-room-agent —— QEStudio 房间机器遥测 agent
   MACHINE_API_BASE       qe-api 基础地址（默认 http://127.0.0.1:8080/api/v1）
 
 示例:
-  DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 qe-room-agent --once --print
-  REPORT_MODE=bearer MACHINE_AGENT_TOKEN=fleet-token DEVICE_SLOT=room-101 qe-room-agent --once
+  DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 qe-agent-telemetry --once --print
+  REPORT_MODE=bearer MACHINE_AGENT_TOKEN=fleet-token DEVICE_SLOT=room-101 qe-agent-telemetry --once
 ";
 
 /// 解析后的命令行选项。

@@ -1,5 +1,5 @@
 [package]
-name = "qe-room-agent"
+name = "qe-agent-telemetry"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"

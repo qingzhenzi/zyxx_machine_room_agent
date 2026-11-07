@@ -73,6 +73,28 @@ impl PhaseStatus {
     }
 }
 
+/// 展示层指令：boot-display 轮询到版本变化即切换模板。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayDirective {
+    /// 单调递增；boot-display 由此判断"有新指令"。
+    pub version: u64,
+    /// 模板名：boot | progress | idle | message | enroll | custom。
+    pub template: String,
+    /// 模板参数（键值对，模板自解释）。
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
+impl Default for DisplayDirective {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            template: "boot".into(),
+            params: serde_json::json!({}),
+        }
+    }
+}
+
 /// 整条流水线的快照（IPC 返回值）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineState {
@@ -81,6 +103,8 @@ pub struct PipelineState {
     /// 阶段是否配置信息充足（enroll 前置条件）。
     pub config_sufficient: bool,
     pub phases: Vec<PhaseStatus>,
+    /// 展示层指令（boot-display 消费）。
+    pub display: DisplayDirective,
 }
 
 /// 内部可变状态。
@@ -100,6 +124,7 @@ impl SharedState {
                 overall: "booting".into(),
                 config_sufficient: false,
                 phases,
+                display: DisplayDirective::default(),
             })),
         }
     }
@@ -142,6 +167,14 @@ impl SharedState {
         let mut state = self.inner.lock().expect("boot state poisoned");
         *state = updated;
         self.recompute_overall(&mut state);
+    }
+
+    /// 推送展示层指令（版本自增；boot-display 轮询到即切换）。
+    pub fn push_display(&self, template: &str, params: serde_json::Value) {
+        let mut state = self.inner.lock().expect("boot state poisoned");
+        state.display.version += 1;
+        state.display.template = template.into();
+        state.display.params = params;
     }
 
     pub fn set_config_sufficient(&self, sufficient: bool) {

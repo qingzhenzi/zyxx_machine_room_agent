@@ -1,4 +1,4 @@
-//! 常驻运行入口：独立二进制 `qe-node-agent` 与统一入口 `qe-agent` 共用。
+//! 节点角色常驻运行入口；由统一入口 `qe-agent --role node` 调用。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +24,7 @@ const DOWNLINK_BATCH: i64 = 20;
 /// 远端策略应用后的通知钩子（`qe-agent` 用来联动 boot 周期检查等）。
 ///
 /// 用进程级 `OnceLock` 注册而非改 `AgentConfig`（其 derive `Eq` 容不下闭包）。
-/// 独立二进制入口不注册，钩子为空时零开销。
+/// 仅统一入口注册；独立使用本库时钩子为空，零开销。
 type RemotePolicyHook = Arc<dyn Fn(u64) + Send + Sync>;
 static REMOTE_POLICY_HOOK: std::sync::OnceLock<RemotePolicyHook> = std::sync::OnceLock::new();
 
@@ -41,7 +41,7 @@ fn notify_remote_policy(full_interval_secs: u64) {
     }
 }
 
-/// 从进程环境读取配置并运行（独立二进制入口）。
+/// 从进程环境读取配置并运行（本库直用的便捷入口，测试/嵌入用）。
 pub async fn run() -> Result<()> {
     let config = AgentConfig::from_env().context("读取 agent 配置失败")?;
     run_with_config(config).await
@@ -54,11 +54,11 @@ pub async fn run_with_config(config: AgentConfig) -> Result<()> {
     init_tracing();
     match run_inner(config).await {
         Ok(()) => {
-            info!("qe-node-agent 已退出");
+            info!("qe-agent-node 已退出");
             Ok(())
         }
         Err(error) => {
-            error!(error = %format!("{error:#}"), "qe-node-agent 退出");
+            error!(error = %format!("{error:#}"), "qe-agent-node 退出");
             Err(error)
         }
     }
@@ -83,7 +83,7 @@ async fn run_inner(config: AgentConfig) -> Result<()> {
         poll_interval_secs = config.local_policy.poll_interval_secs,
         download_concurrency = config.local_policy.download_concurrency,
         cache_max_bytes = config.local_policy.cache_max_bytes,
-        "启动 qe-node-agent（本地策略已加载）"
+        "启动 qe-agent-node（本地策略已加载）"
     );
 
     // 1. 设备凭证（复用 device-pki-client 的目录布局：<data_dir>/creds/<slot>）
@@ -314,7 +314,7 @@ fn transport_config(credentials: &Credentials, config: &AgentConfig) -> Transpor
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,qe_node_agent=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,qe_agent_node=debug"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

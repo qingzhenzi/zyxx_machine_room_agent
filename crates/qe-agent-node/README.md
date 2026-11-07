@@ -1,7 +1,7 @@
 > **已并入统一入口（P4 退场）**：新部署请用 [`qe-agent`](../agent/README.md) 的
 > `qe-agent run --role node`；本 crate 作为库实现继续维护。
 
-# qe-node-agent（房间节点 agent，P2）
+# qe-agent-node（房间节点 agent，P2）
 
 经 **device-pki mTLS** 拉取、校验并导入镜像/资源；大文件走 S3 预签名直连，
 device-pki 消息只承载控制信令与状态。设计契约见
@@ -71,10 +71,10 @@ device-pki 消息只承载控制信令与状态。设计契约见
 ## 运行
 
 ```bash
-cargo build -p qe-node-agent
+cargo build -p qe-agent-node
 DEVICE_PKI_MTLS_URL=https://node:4441 DEVICE_SLOT=room-101 \
   DEVICE_DATA_DIR=/var/lib/qe-agent RUST_LOG=info \
-  ./target/debug/qe-node-agent
+  ./target/debug/qe-agent-node
 ```
 
 > 生产环境必须为 device-pki 服务端与 qe-api 配置相同的 `STORAGE_SIGNING_KEY_BASE64`，

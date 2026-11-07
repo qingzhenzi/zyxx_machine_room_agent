@@ -19,6 +19,14 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::logging::LogBuffer;
 
+/// `POST /v1/display` 请求体：agent 内部模块推送展示层模板。
+#[derive(Debug, Deserialize)]
+struct DisplayPush {
+    template: String,
+    #[serde(default)]
+    params: Value,
+}
+
 /// 请求头上限。
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 /// 请求体上限（注册链接很小，256KiB 足够）。
@@ -291,6 +299,18 @@ pub(crate) async fn route(
                     }
                     None => (400, error_json("bad_request", "缺少 interval_secs")),
                 },
+                Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
+            }
+        }
+        ("POST", "/v1/display") => {
+            let Some(boot) = &state.boot else {
+                return (503, error_json("unavailable", "boot 流水线未启用"));
+            };
+            match serde_json::from_slice::<DisplayPush>(body) {
+                Ok(push) => {
+                    boot.push_display(&push.template, push.params);
+                    (200, json!({ "ok": true }))
+                }
                 Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
             }
         }

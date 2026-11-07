@@ -108,8 +108,10 @@ mod tests {
 
     #[test]
     fn collect_from_parses_hwmon_layout() {
-        let root =
-            std::env::temp_dir().join(format!("qe-room-agent-hwmon-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "qe-agent-telemetry-hwmon-test-{}",
+            std::process::id()
+        ));
         let hwmon = root.join("hwmon3");
         fs::create_dir_all(&hwmon).unwrap();
         fs::write(hwmon.join("name"), "nvme\n").unwrap();

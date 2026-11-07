@@ -1,8 +1,9 @@
 //! Local IPC client for the `qe-agent` daemon.
 //!
 //! Same protocol and socket discovery as the agent GUI client: HTTP/1.1 over
-//! a Unix domain socket. The webview never touches the socket; this module
-//! performs requests on the Rust side and exposes results via commands.
+//! a Unix domain socket, `GET /v1/state`. The webview never touches the
+//! socket; this module performs requests on the Rust side and exposes the
+//! result through a `#[tauri::command]` handler.
 //!
 //! Socket discovery: `QE_AGENT_IPC_SOCKET` (development override) or the
 //! production default `/run/qe-agent/agent.sock`.
@@ -16,32 +17,37 @@ use serde_json::Value;
 /// Production socket path used by the systemd unit.
 pub const DEFAULT_SOCKET_PATH: &str = "/run/qe-agent/agent.sock";
 
-/// Display state polls are cheap; never block the UI for long.
+/// State polls are cheap; never block the UI for long.
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// One display state snapshot served to the webview.
+/// 展示层指令：版本号单调递增，模板由 agent 决定。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DisplayDirective {
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default)]
+    pub template: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+/// `GET /v1/state` 的响应（只取展示层需要的字段）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayState {
-    /// Which scene to render: `boot` | `progress` | `idle`.
-    pub scene: String,
-    /// Primary headline text.
     #[serde(default)]
-    pub message: String,
-    /// Secondary detail text.
+    pub overall: String,
     #[serde(default)]
-    pub detail: String,
-    /// Optional progress in `0..=100`; `None` hides the bar.
+    pub config_sufficient: bool,
     #[serde(default)]
-    pub progress: Option<f64>,
+    pub display: DisplayDirective,
 }
 
 impl Default for DisplayState {
     fn default() -> Self {
         Self {
-            scene: "boot".into(),
-            message: "正在启动…".into(),
-            detail: String::new(),
-            progress: None,
+            overall: "booting".into(),
+            config_sufficient: false,
+            display: DisplayDirective::default(),
         }
     }
 }
@@ -93,17 +99,14 @@ fn request(_path: &str) -> Result<Value, String> {
     Err("IPC is only supported on Unix platforms".into())
 }
 
-/// Fetch the current display state from the agent.
+/// Fetch the current state (including the display directive) from the agent.
 ///
 /// Falls back to [`DisplayState::default`] when the agent is unreachable so
 /// the display keeps showing something instead of erroring out.
 pub fn display_state() -> DisplayState {
-    let _ = request("/display/state").and_then(|value| {
-        serde_json::from_value::<DisplayState>(value).map_err(|error| error.to_string())
-    });
-    // TODO(qe-agent): parse real response once `/display/state` lands in the
-    // daemon. Until then the default boot scene is returned below.
-    DisplayState::default()
+    request("/v1/state")
+        .and_then(|value| serde_json::from_value::<DisplayState>(value).map_err(|e| e.to_string()))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -111,18 +114,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_state_is_boot_scene() {
+    fn default_state_is_boot() {
         let state = DisplayState::default();
-        assert_eq!(state.scene, "boot");
-        assert!(state.progress.is_none());
+        assert_eq!(state.display.version, 0);
+        assert_eq!(state.display.template, "");
+        assert_eq!(state.overall, "booting");
     }
 
     #[test]
-    fn parses_partial_json() {
+    fn parses_full_state() {
+        let raw = serde_json::json!({
+            "overall": "degraded",
+            "config_sufficient": false,
+            "display": {
+                "version": 2,
+                "template": "message",
+                "params": { "title": "维护通知" }
+            },
+            "phases": []
+        });
+        let state: DisplayState = serde_json::from_value(raw).unwrap();
+        assert_eq!(state.overall, "degraded");
+        assert!(!state.config_sufficient);
+        assert_eq!(state.display.version, 2);
+        assert_eq!(state.display.template, "message");
+        assert_eq!(state.display.params["title"], "维护通知");
+    }
+
+    #[test]
+    fn tolerates_missing_display() {
         let state: DisplayState =
-            serde_json::from_str(r#"{"scene": "progress", "progress": 42}"#).unwrap();
-        assert_eq!(state.scene, "progress");
-        assert_eq!(state.progress, Some(42.0));
-        assert_eq!(state.message, "");
+            serde_json::from_value(serde_json::json!({ "overall": "ready" })).unwrap();
+        assert_eq!(state.overall, "ready");
+        assert_eq!(state.display.version, 0);
     }
 }
