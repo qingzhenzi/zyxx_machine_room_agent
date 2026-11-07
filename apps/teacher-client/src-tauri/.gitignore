@@ -1,0 +1,4 @@
+# Tauri build output (large; never commit).
+/target/
+# Tauri generates typed IPC schemas from `tauri.conf.json` on every build.
+/gen/schemas/

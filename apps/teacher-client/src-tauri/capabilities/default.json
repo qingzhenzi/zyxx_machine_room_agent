@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Room Node 教师端主窗口的最小权限集：只需 core:default（业务请求走应用自身命令）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

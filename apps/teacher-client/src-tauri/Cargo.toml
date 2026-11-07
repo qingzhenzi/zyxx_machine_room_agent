@@ -1,0 +1,34 @@
+[package]
+name = "teacher-client"
+version = "0.1.0"
+description = "Room Node 教师端桌面客户端（Tauri v2 MVP）"
+authors = ["QEStudio"]
+license = "MIT"
+repository = "https://github.com/QEStudio/backend-template"
+edition = "2021"
+rust-version = "1.88"
+
+# A desktop shell that only exposes two small commands; keep the dependency set
+# intentionally tiny so `cargo build -p teacher-client` stays fast and CI-friendly.
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTTP happens in Rust (not in the webview) so requests are not subject to the
+# browser CORS policy of the control-node API. rustls avoids an OpenSSL system dep.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# This app is its own workspace root: the repo intentionally keeps Tauri apps out
+# of `room_agent/Cargo.toml` (same as `apps/agent-client`), so backend builds do
+# not pull webkit2gtk/tauri into the workspace lockfile or CI.
+[workspace]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

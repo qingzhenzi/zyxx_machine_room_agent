@@ -1,0 +1,13 @@
+# Use the same crates.io mirror as the other Tauri apps / backend workspace in this repo.
+[source.crates-io]
+replace-with = "rsproxy"
+
+[source.rsproxy]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true
+
+[http]
+multiplexing = false
+timeout = 60
