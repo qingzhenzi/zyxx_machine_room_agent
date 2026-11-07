@@ -9,6 +9,9 @@
 #   --qe-agent-bin PATH      指定 qe-agent 二进制（默认 target/release/qe-agent）
 #   --boot-display-bin PATH  指定 boot-display 二进制（默认取 apps/boot-display 预构建产物）
 #   --no-boot-display        跳过展示层安装
+#   --gui-bin PATH           指定 agent-client GUI 二进制（默认 apps/agent-client/target/release/qe-agent-client）
+#   --gui-user USER          为该用户安装登录自启并加入 qe-agent 组（默认 SUDO_USER）
+#   --no-gui                 跳过桌面客户端安装
 #   --start                  安装完成后 systemctl enable --now qe-agent
 #   -h, --help               显示帮助
 #
@@ -28,7 +31,10 @@ DISPLAY_DEBUG="${REPO_ROOT}/apps/boot-display/src-tauri/target/debug/boot-displa
 
 QE_AGENT_BIN="${QE_AGENT_BIN:-${REPO_ROOT}/target/release/qe-agent}"
 BOOT_DISPLAY_BIN="${BOOT_DISPLAY_BIN:-}"
+GUI_BIN="${QE_AGENT_CLIENT_BIN:-${REPO_ROOT}/apps/agent-client/src-tauri/target/release/qe-agent-client}"
+GUI_USER="${GUI_USER:-${SUDO_USER:-}}"
 INSTALL_DISPLAY=1
+INSTALL_GUI=1
 START_AFTER_INSTALL=0
 
 usage() {
@@ -38,6 +44,9 @@ usage() {
   --qe-agent-bin PATH      qe-agent 二进制路径（默认 target/release/qe-agent）
   --boot-display-bin PATH  boot-display 二进制路径（默认优先 release，其次 debug）
   --no-boot-display        跳过 boot-display 安装
+  --gui-bin PATH           agent-client GUI 二进制（默认 apps/agent-client/target/release/qe-agent-client）
+  --gui-user USER          安装该用户的登录自启并加入 qe-agent 组（默认 SUDO_USER）
+  --no-gui                 跳过桌面客户端安装
   --start                  安装完成后 systemctl enable --now qe-agent
   -h, --help               显示本帮助
 
@@ -66,6 +75,20 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-boot-display)
             INSTALL_DISPLAY=0
+            shift
+            ;;
+        --gui-bin)
+            [[ $# -ge 2 ]] || { printf '错误：--gui-bin 缺少参数\n' >&2; exit 2; }
+            GUI_BIN="$2"
+            shift 2
+            ;;
+        --gui-user)
+            [[ $# -ge 2 ]] || { printf '错误：--gui-user 缺少参数\n' >&2; exit 2; }
+            GUI_USER="$2"
+            shift 2
+            ;;
+        --no-gui)
+            INSTALL_GUI=0
             shift
             ;;
         --start)
@@ -148,6 +171,52 @@ if [[ "${INSTALL_DISPLAY}" -eq 1 ]]; then
     fi
 fi
 
+# ---- 6. agent-client 桌面客户端（尽力安装；二进制缺失只提示构建命令）----
+if [[ "${INSTALL_GUI}" -eq 1 ]]; then
+    if [[ -x "${GUI_BIN}" ]]; then
+        install -m 0755 "${GUI_BIN}" "${BIN_DIR}/qe-agent-client"
+        ICON_DIR="/usr/share/icons/hicolor/128x128/apps"
+        DESKTOP_DIR="/usr/share/applications"
+        install -d -m 0755 "${ICON_DIR}" "${DESKTOP_DIR}"
+        install -m 0644 "${REPO_ROOT}/apps/agent-client/src-tauri/icons/128x128.png" \
+            "${ICON_DIR}/qe-agent-client.png"
+        install -m 0644 "${REPO_ROOT}/apps/agent-client/deploy/qe-agent-client.desktop" \
+            "${DESKTOP_DIR}/qe-agent-client.desktop"
+        log "已安装 ${BIN_DIR}/qe-agent-client 与桌面菜单项"
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database "${DESKTOP_DIR}" >/dev/null 2>&1 || true
+        fi
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q /usr/share/icons/hicolor >/dev/null 2>&1 || true
+        fi
+        if [[ -n "${GUI_USER}" ]] && id "${GUI_USER}" >/dev/null 2>&1; then
+            GUI_HOME="$(getent passwd "${GUI_USER}" | cut -d: -f6)"
+            if [[ -n "${GUI_HOME}" && -d "${GUI_HOME}" ]]; then
+                install -d -m 0755 -o "${GUI_USER}" -g "$(id -gn "${GUI_USER}")" \
+                    "${GUI_HOME}/.config/autostart"
+                sed "s|@EXEC@|${BIN_DIR}/qe-agent-client|g; s|@ICON@|${ICON_DIR}/qe-agent-client.png|g" \
+                    "${REPO_ROOT}/apps/agent-client/deploy/qe-agent-client-autostart.desktop" \
+                    >"${GUI_HOME}/.config/autostart/qe-agent-client.desktop"
+                chown "${GUI_USER}:$(id -gn "${GUI_USER}")" \
+                    "${GUI_HOME}/.config/autostart/qe-agent-client.desktop"
+                chmod 0644 "${GUI_HOME}/.config/autostart/qe-agent-client.desktop"
+                log "已为 ${GUI_USER} 安装登录自启：${GUI_HOME}/.config/autostart/qe-agent-client.desktop"
+            fi
+            if getent group qe-agent >/dev/null 2>&1 &&
+                ! id -nG "${GUI_USER}" | tr ' ' '\n' | grep -qx qe-agent; then
+                usermod -aG qe-agent "${GUI_USER}"
+                log "已把 ${GUI_USER} 加入 qe-agent 组（需注销/重新登录生效）"
+            fi
+        else
+            log "未指定 --gui-user，跳过用户级登录自启/组授权（桌面用户可手动加入 qe-agent 组）"
+        fi
+    else
+        log "未找到 agent-client 二进制：${GUI_BIN}"
+        log "构建：cd apps/agent-client && pnpm tauri build --debug（或用 --gui-bin 指定）"
+        log "构建后重跑本脚本即可安装 GUI 与登录自启。"
+    fi
+fi
+
 systemctl daemon-reload
 log "已执行 systemctl daemon-reload"
 
@@ -164,4 +233,6 @@ cat <<'EOF'
   3. sudo qe-agent cli status            # 自检凭证与宿主能力
   4. sudo systemctl enable --now qe-agent   # 或重跑本脚本加 --start
   5. curl --unix-socket /run/qe-agent/agent.sock http://localhost/v1/status
+  6. 桌面客户端：应用菜单「QEStudio Agent」；或 /usr/local/bin/qe-agent-client
+     首次登录后托盘常驻；默认隐藏窗口，点托盘图标显示。
 EOF
