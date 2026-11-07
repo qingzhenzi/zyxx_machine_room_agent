@@ -80,6 +80,18 @@ pub enum ServerFrame {
 
 /// 用设备证书与 CA 链建一条到 `/channel` 的 mTLS WebSocket。
 pub async fn connect(cfg: &TransportConfig) -> Result<WsStream> {
+    connect_path(cfg, "/channel").await
+}
+
+/// 同 [`connect`]，但走自定义 `path_and_query`（noVNC 隧道用
+/// `/vnc/<serial>?session=<id>`）。
+///
+/// 路径必须是绝对路径（以 `/` 开头），不允许空白/`#` 等会破坏握手行的字符。
+pub async fn connect_path(cfg: &TransportConfig, path_and_query: &str) -> Result<WsStream> {
+    let request_url = {
+        let (host_port, _) = endpoint_parts(&cfg.mtls_endpoint)?;
+        ws_request_url(&host_port, path_and_query)?
+    };
     let tls = build_tls_config(cfg)?;
     let connector = TlsConnector::from(Arc::new(tls));
 
@@ -92,13 +104,31 @@ pub async fn connect(cfg: &TransportConfig) -> Result<WsStream> {
         .await
         .map_err(|e| Error::Transport(format!("TLS 握手失败: {e}")))?;
 
-    let request = format!("wss://{host_port}/channel")
+    let request = request_url
         .into_client_request()
         .map_err(|e| Error::Transport(format!("构造握手请求失败: {e}")))?;
     let (ws, _) = tokio_tungstenite::client_async(request, tls_stream)
         .await
         .map_err(|e| Error::Transport(format!("WebSocket 握手失败: {e}")))?;
     Ok(ws)
+}
+
+/// 拼 `wss://<host_port><path_and_query>` 握手 URL（纯函数，便于单测）。
+pub fn ws_request_url(host_port: &str, path_and_query: &str) -> Result<String> {
+    if !path_and_query.starts_with('/') {
+        return Err(Error::Transport(format!(
+            "WebSocket 路径必须以 / 开头: {path_and_query:?}"
+        )));
+    }
+    if path_and_query
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '#' | '\n' | '\r' | '\t'))
+    {
+        return Err(Error::Transport(format!(
+            "WebSocket 路径包含非法字符: {path_and_query:?}"
+        )));
+    }
+    Ok(format!("wss://{host_port}{path_and_query}"))
 }
 
 /// rustls 配置：设备证书 + CA 链信任根（不做任何"接受无效证书"的妥协）。
@@ -349,6 +379,35 @@ mod tests {
         assert_eq!(addr, "127.0.0.1:4441");
 
         assert!(endpoint_parts("https://").is_err());
+    }
+
+    #[test]
+    fn ws_request_url_builds_and_rejects() {
+        assert_eq!(
+            ws_request_url("node:4441", "/vnc/abc?session=1").unwrap(),
+            "wss://node:4441/vnc/abc?session=1"
+        );
+        assert_eq!(
+            ws_request_url("127.0.0.1:4441", "/channel").unwrap(),
+            "wss://127.0.0.1:4441/channel"
+        );
+        // 模拟路径参数（已由调用方 percent-encode，不含空白）
+        assert_eq!(
+            ws_request_url("node:4441", "/vnc/a%2Fb%20c?session=x").unwrap(),
+            "wss://node:4441/vnc/a%2Fb%20c?session=x"
+        );
+        assert!(
+            ws_request_url("node:4441", "vnc/abc").is_err(),
+            "相对路径应拒绝"
+        );
+        assert!(
+            ws_request_url("node:4441", "/vnc/a b").is_err(),
+            "空白应拒绝"
+        );
+        assert!(
+            ws_request_url("node:4441", "/vnc#frag").is_err(),
+            "# 应拒绝"
+        );
     }
 
     #[test]

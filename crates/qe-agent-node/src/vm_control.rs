@@ -92,6 +92,8 @@ pub enum VmOp {
     Export,
     #[serde(rename = "image.make")]
     ImageMake,
+    #[serde(rename = "vnc.info")]
+    VncInfo,
 }
 
 impl VmOp {
@@ -111,6 +113,7 @@ impl VmOp {
             Self::DiskInfo => "disk.info",
             Self::Export => "export",
             Self::ImageMake => "image.make",
+            Self::VncInfo => "vnc.info",
         }
     }
 
@@ -487,6 +490,10 @@ pub trait VmExecutor: Send + Sync {
     fn export(&self, name: &str, format: &str) -> Result<Value>;
     /// 制作镜像：导出 → 32 MiB 分片 → presign/PUT → register（阻塞实现）。
     fn image_make(&self, args: &ImageMakeArgs) -> Result<Value>;
+    /// 读取域的 graphics 信息（VNC 隧道解析 port/host 用）。
+    fn graphics(&self, name: &str) -> Result<Vec<GraphicsInfo>>;
+    /// `vnc.info`：返回 `{name,host,port,password|null}`。
+    fn vnc_info(&self, name: &str) -> Result<Value>;
 }
 
 /// 生产实现：每条命令独立连接 libvirt（`virt-crate::Backend`），
@@ -796,6 +803,18 @@ impl VmExecutor for LibvirtExecutor {
     fn image_make(&self, args: &ImageMakeArgs) -> Result<Value> {
         self.run_image_make(args)
     }
+
+    fn graphics(&self, name: &str) -> Result<Vec<GraphicsInfo>> {
+        let hypervisor = self.backend()?;
+        hypervisor
+            .graphics_of(name)
+            .map_err(|error| anyhow::anyhow!("读取 {name:?} graphics 失败: {error}"))
+    }
+
+    fn vnc_info(&self, name: &str) -> Result<Value> {
+        let graphics = self.graphics(name)?;
+        crate::vnc::vnc_info_from_graphics(name, &graphics)
+    }
 }
 
 impl LibvirtExecutor {
@@ -908,6 +927,7 @@ enum PreparedOp {
     DiskInfo(String),
     Export(String, String),
     ImageMake(ImageMakeArgs),
+    VncInfo(String),
 }
 
 fn prepare(command: &VmCommand) -> Result<PreparedOp> {
@@ -936,6 +956,7 @@ fn prepare(command: &VmCommand) -> Result<PreparedOp> {
         VmOp::DiskInfo => PreparedOp::DiskInfo(name),
         VmOp::Export => PreparedOp::Export(name, command.export_format()),
         VmOp::ImageMake => PreparedOp::ImageMake(command.image_make_args()?),
+        VmOp::VncInfo => PreparedOp::VncInfo(name),
     })
 }
 
@@ -969,6 +990,7 @@ pub async fn execute_with_timeout(
             PreparedOp::DiskInfo(name) => executor.disk_info(&name),
             PreparedOp::Export(name, format) => executor.export(&name, &format),
             PreparedOp::ImageMake(args) => executor.image_make(&args),
+            PreparedOp::VncInfo(name) => executor.vnc_info(&name),
         }
     });
 
@@ -1761,6 +1783,29 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
                 "skipped_chunks": 0,
             }))
         }
+
+        fn graphics(&self, name: &str) -> Result<Vec<GraphicsInfo>> {
+            self.record("graphics", name);
+            Ok(vec![GraphicsInfo {
+                kind: virt_crate::GraphicsKind::Vnc,
+                host: "127.0.0.1".to_owned(),
+                port: 5901,
+                password: true,
+                password_value: Some("s3cret".to_owned()),
+            }])
+        }
+
+        fn vnc_info(&self, name: &str) -> Result<Value> {
+            self.record("vnc.info", name);
+            let graphics = vec![GraphicsInfo {
+                kind: virt_crate::GraphicsKind::Vnc,
+                host: "127.0.0.1".to_owned(),
+                port: 5901,
+                password: true,
+                password_value: Some("s3cret".to_owned()),
+            }];
+            crate::vnc::vnc_info_from_graphics(name, &graphics)
+        }
     }
 
     fn command(payload: &str) -> VmCommand {
@@ -2085,6 +2130,57 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
         assert_eq!(
             executor.calls.lock().unwrap().as_slice(),
             [("image.make".to_string(), "vm-1".to_string())]
+        );
+    }
+
+    #[test]
+    fn parses_vnc_info_command() {
+        let command = parse(&format!(
+            r#"{{"request_id":"{}","op":"vnc.info","args":{{"name":"vm-1"}}}}"#,
+            request_id()
+        ))
+        .unwrap();
+        assert_eq!(command.op, VmOp::VncInfo);
+        assert_eq!(command.name(), "vm-1");
+
+        // 缺 name 拒绝
+        assert!(
+            parse(&format!(
+                r#"{{"request_id":"{}","op":"vnc.info"}}"#,
+                request_id()
+            ))
+            .is_err()
+        );
+        // 非法 name 拒绝
+        assert!(
+            parse(&format!(
+                r#"{{"request_id":"{}","op":"vnc.info","args":{{"name":"../x"}}}}"#,
+                request_id()
+            ))
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn vnc_info_dispatches_and_returns_endpoint() {
+        let executor = Arc::new(MockExecutor::default());
+        let result = execute(
+            executor.clone(),
+            command(&format!(
+                r#"{{"request_id":"{}","op":"vnc.info","args":{{"name":"vm-1"}}}}"#,
+                request_id()
+            )),
+        )
+        .await;
+        assert!(result.ok, "{:?}", result.error);
+        let data = result.data.unwrap();
+        assert_eq!(data["name"], "vm-1");
+        assert_eq!(data["host"], "127.0.0.1");
+        assert_eq!(data["port"], 5901);
+        assert_eq!(data["password"], "s3cret");
+        assert_eq!(
+            executor.calls.lock().unwrap().as_slice(),
+            [("vnc.info".to_string(), "vm-1".to_string())]
         );
     }
 

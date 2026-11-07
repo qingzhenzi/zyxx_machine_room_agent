@@ -317,6 +317,68 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
         });
     }
 
+    // 6.1c noVNC 隧道（仅 node / both）：vnc.open 到达后异步 spawn 桥接任务，
+    // 不阻塞其它下行消息。WS 路径使用设备证书 serial（device-pki 校验一致）。
+    {
+        let executor: Arc<dyn crate::vm_control::VmExecutor> = Arc::new(
+            crate::vm_control::LibvirtExecutor::new(config.data_dir.clone()),
+        );
+        let vnc_transport = Arc::new(transport_config(&credentials, &config));
+        let certificate_serial = credentials.serial.clone();
+        dispatcher.subscribe("vnc.open", move |message: DownlinkMessage| {
+            let executor = Arc::clone(&executor);
+            let transport = Arc::clone(&vnc_transport);
+            let certificate_serial = certificate_serial.clone();
+            async move {
+                let open = match crate::vnc::VncOpen::parse(&message.payload) {
+                    Ok(open) => open,
+                    Err(error) => {
+                        warn!(
+                            id = message.id,
+                            error = %format!("{error:#}"),
+                            "vnc.open payload 解析失败，跳过"
+                        );
+                        return Ok(());
+                    }
+                };
+                let serial =
+                    crate::vnc::effective_serial(open.serial.as_deref(), &certificate_serial);
+                let task_open = open.clone();
+                let task_serial = serial.clone();
+                tokio::spawn(async move {
+                    let started = std::time::Instant::now();
+                    match crate::vnc::run_session(
+                        executor,
+                        transport.as_ref(),
+                        &task_open,
+                        &task_serial,
+                    )
+                    .await
+                    {
+                        Ok(stats) => info!(
+                            session_id = %task_open.session_id,
+                            vm = %task_open.vm,
+                            serial = %task_serial,
+                            bytes_to_vnc = stats.bytes_to_vnc,
+                            bytes_to_ws = stats.bytes_to_ws,
+                            reason = stats.reason,
+                            elapsed_ms = started.elapsed().as_millis(),
+                            "vnc 隧道结束"
+                        ),
+                        Err(error) => warn!(
+                            session_id = %task_open.session_id,
+                            vm = %task_open.vm,
+                            serial = %task_serial,
+                            error = %format!("{error:#}"),
+                            "vnc 隧道失败"
+                        ),
+                    }
+                });
+                Ok(())
+            }
+        });
+    }
+
     // 6.2 config.update：校验完整策略后替换；坏 payload 返回 Err → 不 ack，下轮重投。
     {
         let runtime_policy = Arc::clone(&runtime_policy);

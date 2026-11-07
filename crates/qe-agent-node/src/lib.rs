@@ -33,6 +33,7 @@ pub mod pull;
 pub mod report;
 pub mod run;
 pub mod vm_control;
+pub mod vnc;
 
 pub use cache::ObjectCache;
 pub use config::AgentConfig;
