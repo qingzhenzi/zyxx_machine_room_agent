@@ -1,6 +1,8 @@
-//! 主机清单：hostname / OS / kernel / arch / uptime / machine_id。
+//! 主机清单：hostname / OS / kernel / arch / uptime / machine_id / 网卡 MAC。
 
 use std::fs;
+
+use super::macs;
 
 /// 内置采集到的主机信息。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,9 +17,11 @@ pub struct HostInfo {
     pub arch: String,
     /// 开机时长（秒）。
     pub uptime_secs: Option<u64>,
+    /// 网卡 MAC（小写、排序去重；Wake-on-LAN 目标，读不到时为空）。
+    pub macs: Vec<String>,
 }
 
-/// 从本机 `/proc`、`/etc/os-release` 采集主机信息。
+/// 从本机 `/proc`、`/etc/os-release`、`/sys/class/net` 采集主机信息。
 pub fn collect() -> HostInfo {
     HostInfo {
         hostname: read_trimmed("/proc/sys/kernel/hostname")
@@ -32,6 +36,7 @@ pub fn collect() -> HostInfo {
         uptime_secs: fs::read_to_string("/proc/uptime")
             .ok()
             .and_then(|content| parse_uptime(&content)),
+        macs: macs::collect(),
     }
 }
 

@@ -11,6 +11,7 @@
 pub mod cpu;
 pub mod disk;
 pub mod host;
+pub mod macs;
 pub mod memory;
 pub mod network;
 pub mod thermal;
@@ -167,6 +168,7 @@ fn build_sections(
                 "kernel_version": host.kernel_version,
                 "arch": host.arch,
                 "uptime_secs": host.uptime_secs,
+                "macs": host.macs,
                 "cpu_model": cpu.model,
                 "logical_cores": cpu.logical_cores,
                 "physical_cores": cpu.physical_cores,
@@ -257,6 +259,11 @@ mod tests {
         assert!(value["sections"]["disks"].is_array());
         assert!(value["sections"]["network"].is_array());
         assert!(value["sections"]["thermal"].is_array());
+        // 网卡 MAC（WOL 用）：`sections.agent.host.macs`，/sys/class/net 读不到时是空数组。
+        assert!(
+            agent["host"]["macs"].is_array(),
+            "sections.agent.host.macs 必须是数组"
+        );
     }
 
     #[test]
