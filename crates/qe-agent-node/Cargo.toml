@@ -17,6 +17,8 @@ futures-util = "0.3"
 hex = "0.4"
 qe-device-pki-client = { path = "../qe-device-pki-client" }
 qep2p = { path = "../qep2p" }
+virt-crate = { path = "../virt-crate", features = ["libvirt-backend"] }
+png = "0.18"
 rustls = "0.23"
 qe-domain = { path = "../../../room_node/crates/domain" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

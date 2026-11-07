@@ -5,6 +5,7 @@
 //! 这是**临时验证用 crate**：注册与通讯逻辑验证通过后，可原样移植进真实客户端项目。
 
 pub mod channel;
+pub mod command;
 pub mod creds;
 pub mod downlink;
 pub mod enroll;

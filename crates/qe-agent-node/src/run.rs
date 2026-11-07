@@ -269,6 +269,52 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
         });
     }
 
+    // 6.1b VM 远程控制（仅 node / both 角色；`--role machine` 不调用本函数，故不会注册，
+    // 避免无 libvirt 权限的机器注册 VM 命令）。
+    {
+        let executor: Arc<dyn crate::vm_control::VmExecutor> =
+            Arc::new(crate::vm_control::LibvirtExecutor);
+        let command_transport = Arc::new(transport_config(&credentials, &config));
+        dispatcher.subscribe("vm.command", move |message: DownlinkMessage| {
+            let executor = Arc::clone(&executor);
+            let transport = Arc::clone(&command_transport);
+            async move {
+                let started = std::time::Instant::now();
+                match crate::vm_control::execute_payload(executor, &message.payload).await {
+                    Ok(result) => {
+                        let elapsed_ms = started.elapsed().as_millis();
+                        if result.ok {
+                            info!(
+                                request_id = %result.request_id,
+                                op = result.op.as_str(),
+                                elapsed_ms,
+                                "vm.command 执行成功"
+                            );
+                        } else {
+                            warn!(
+                                request_id = %result.request_id,
+                                op = result.op.as_str(),
+                                elapsed_ms,
+                                error = ?result.error,
+                                "vm.command 执行失败"
+                            );
+                        }
+                        report_command_result_with_retry(&transport, &result).await;
+                    }
+                    Err(error) => {
+                        // 无法解析时没有 request_id 可回传；ack 掉避免毒消息无限重投。
+                        error!(
+                            id = message.id,
+                            error = %format!("{error:#}"),
+                            "vm.command payload 解析失败，跳过"
+                        );
+                    }
+                }
+                Ok(())
+            }
+        });
+    }
+
     // 6.2 config.update：校验完整策略后替换；坏 payload 返回 Err → 不 ack，下轮重投。
     {
         let runtime_policy = Arc::clone(&runtime_policy);
@@ -350,6 +396,46 @@ fn resolve_p2p_distribution(
     };
     let blobs: Arc<dyn crate::p2p::BlobExchange> = node;
     Some(Arc::new(P2pDistribution::new(blobs, seeds)))
+}
+
+/// 回传 VM 命令结果（3 次短重试）。
+///
+/// 最终失败只记日志、不向上返回错误：命令已经执行过，让下行重投会导致
+/// reboot/destroy 等动作被重复执行；宁可丢一次结果也不重复操作。
+async fn report_command_result_with_retry(
+    transport: &TransportConfig,
+    result: &crate::vm_control::CommandResult,
+) {
+    for attempt in 1..=3u32 {
+        match qe_device_pki_client::command::report_command_result(
+            transport,
+            &result.request_id,
+            result.ok,
+            result.data.as_ref(),
+            result.error.as_deref(),
+        )
+        .await
+        {
+            Ok(_) => return,
+            Err(error) => {
+                if attempt < 3 {
+                    warn!(
+                        request_id = %result.request_id,
+                        attempt,
+                        error = %error,
+                        "命令结果回传失败，稍后重试"
+                    );
+                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+                } else {
+                    error!(
+                        request_id = %result.request_id,
+                        error = %error,
+                        "命令结果回传失败（已重试 3 次，结果可能丢失）"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// 构造一份 mTLS 传输配置（`TransportConfig` 不实现 Clone，按需构造）。
