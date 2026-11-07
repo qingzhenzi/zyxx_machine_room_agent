@@ -74,6 +74,8 @@ pub enum VmOp {
     Reboot,
     #[serde(rename = "destroy")]
     Destroy,
+    #[serde(rename = "delete")]
+    Delete,
     #[serde(rename = "screenshot")]
     Screenshot,
     #[serde(rename = "create")]
@@ -104,6 +106,7 @@ impl VmOp {
             Self::Shutdown => "shutdown",
             Self::Reboot => "reboot",
             Self::Destroy => "destroy",
+            Self::Delete => "delete",
             Self::Screenshot => "screenshot",
             Self::Create => "create",
             Self::SnapshotCreate => "snapshot.create",
@@ -175,6 +178,9 @@ pub struct VmCommandArgs {
     pub description: Option<String>,
     #[serde(default)]
     pub format: Option<String>,
+
+    /// `delete` 是否同时删除磁盘文件（默认 false：只 undefine）。
+    pub remove_disks: Option<bool>,
 }
 
 /// 一条下行命令。
@@ -235,6 +241,11 @@ impl VmCommand {
 
     fn target_name(&self) -> String {
         self.name().to_owned()
+    }
+
+    /// `delete` 是否连带删除磁盘文件。
+    fn remove_disks(&self) -> bool {
+        self.args.remove_disks.unwrap_or(false)
     }
 
     fn timeout(&self) -> Duration {
@@ -472,6 +483,8 @@ pub trait VmExecutor: Send + Sync {
     fn list(&self) -> Result<Value>;
     /// 生命周期动作（已校验 name）。
     fn lifecycle(&self, op: VmOp, name: &str) -> Result<()>;
+    /// 删除虚拟机：运行中先 destroy，再 undefine；可选删除磁盘文件。
+    fn delete(&self, name: &str, remove_disks: bool) -> Result<Value>;
     /// 截图原始字节（PNG 或 PNM）。
     fn screenshot(&self, name: &str) -> Result<Vec<u8>>;
     /// 底包 + 差分盘创建并 define（可选启动）。
@@ -655,6 +668,43 @@ impl VmExecutor for LibvirtExecutor {
             _ => bail!("op={} 不是生命周期命令", op.as_str()),
         };
         result.map_err(|error| anyhow::anyhow!("{} {name:?} 失败: {error}", op.as_str()))
+    }
+
+    fn delete(&self, name: &str, remove_disks: bool) -> Result<Value> {
+        let hypervisor = self.backend()?;
+        let domain = hypervisor
+            .domain(name)
+            .map_err(|error| anyhow::anyhow!("找不到虚拟机 {name:?}: {error}"))?;
+        let state = domain.state().unwrap_or(DomainState::Unknown);
+        if state.is_active() {
+            domain
+                .destroy()
+                .map_err(|error| anyhow::anyhow!("删除前强制关机 {name:?} 失败: {error}"))?;
+        }
+        let disks = domain.disk_paths().unwrap_or_default();
+        domain
+            .undefine()
+            .map_err(|error| anyhow::anyhow!("删除虚拟机定义 {name:?} 失败: {error}"))?;
+        let mut removed = Vec::new();
+        if remove_disks {
+            for disk in &disks {
+                let path = std::path::Path::new(disk);
+                if path.exists() {
+                    std::fs::remove_file(path)
+                        .with_context(|| format!("删除磁盘失败: {disk}"))?;
+                    removed.push(disk.clone());
+                }
+            }
+        }
+        // 差分盘删完后清理空目录（<data>/vms/<name>/），避免留下空壳。
+        let vm_dir = self.data_dir.join("vms").join(name);
+        let _ = std::fs::remove_dir(&vm_dir);
+        Ok(json!({
+            "name": name,
+            "result": "ok",
+            "undefine": true,
+            "removed_disks": removed,
+        }))
     }
 
     fn screenshot(&self, name: &str) -> Result<Vec<u8>> {
@@ -922,6 +972,7 @@ enum PreparedOp {
     List,
     Screenshot(String),
     Lifecycle(VmOp, String),
+    Delete(String, bool),
     Create(CreateArgs),
     Snapshot(SnapshotAction, String, Option<String>),
     DiskInfo(String),
@@ -938,6 +989,7 @@ fn prepare(command: &VmCommand) -> Result<PreparedOp> {
         VmOp::Start | VmOp::Shutdown | VmOp::Reboot | VmOp::Destroy => {
             PreparedOp::Lifecycle(command.op, name)
         }
+        VmOp::Delete => PreparedOp::Delete(name, command.remove_disks()),
         VmOp::Create => PreparedOp::Create(command.create_args()?),
         VmOp::SnapshotCreate
         | VmOp::SnapshotList
@@ -983,6 +1035,7 @@ pub async fn execute_with_timeout(
                 executor.lifecycle(op, &name)?;
                 Ok(json!({ "name": name, "result": "ok" }))
             }
+            PreparedOp::Delete(name, remove_disks) => executor.delete(&name, remove_disks),
             PreparedOp::Create(args) => executor.create(&args),
             PreparedOp::Snapshot(action, name, tag) => {
                 executor.snapshot(action, &name, tag.as_deref(), None)
@@ -1714,6 +1767,16 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
             Ok(())
         }
 
+        fn delete(&self, name: &str, remove_disks: bool) -> Result<Value> {
+            self.record("delete", name);
+            Ok(json!({
+                "name": name,
+                "result": "ok",
+                "undefine": true,
+                "removed_disks": if remove_disks { vec![format!("/data/vms/{name}/disk.qcow2")] } else { vec![] },
+            }))
+        }
+
         fn screenshot(&self, name: &str) -> Result<Vec<u8>> {
             self.record("screenshot", name);
             if self.panic_on_screenshot {
@@ -2182,6 +2245,39 @@ ID      TAG               VM_SIZE                DATE        VM_CLOCK\n\
             executor.calls.lock().unwrap().as_slice(),
             [("vnc.info".to_string(), "vm-1".to_string())]
         );
+    }
+
+    #[test]
+    fn parses_delete_command_and_remove_disks() {
+        let command = parse(&format!(
+            r#"{{"request_id":"{}","op":"delete","args":{{"name":"vm-1","remove_disks":true}}}}"#,
+            request_id()
+        ))
+        .unwrap();
+        assert_eq!(command.op, VmOp::Delete);
+        assert_eq!(command.name(), "vm-1");
+        assert!(command.remove_disks());
+        let command = parse(&format!(
+            r#"{{"request_id":"{}","op":"delete","args":{{"name":"vm-1"}}}}"#,
+            request_id()
+        ))
+        .unwrap();
+        assert!(!command.remove_disks());
+    }
+
+    #[tokio::test]
+    async fn delete_dispatches_to_executor() {
+        let executor = Arc::new(MockExecutor::default());
+        let result = execute(
+            executor.clone(),
+            command(&format!(
+                r#"{{"request_id":"{}","op":"delete","args":{{"name":"vm-1","remove_disks":true}}}}"#,
+                request_id()
+            )),
+        )
+        .await;
+        assert!(result.ok, "{:?}", result.error);
+        assert_eq!(executor.calls.lock().unwrap().as_slice(), [("delete".to_string(), "vm-1".to_string())]);
     }
 
     /// 1x1 黑色 PNG（测试用）。
