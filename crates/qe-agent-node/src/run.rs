@@ -301,7 +301,7 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
                                 "vm.command 执行失败"
                             );
                         }
-                        report_command_result_with_retry(&transport, &result).await;
+                        report_command_result_with_retry(&transport, &result.request_id, result.ok, result.data.as_ref(), result.error.as_deref()).await;
                     }
                     Err(error) => {
                         // 无法解析时没有 request_id 可回传；ack 掉避免毒消息无限重投。
@@ -309,6 +309,46 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
                             id = message.id,
                             error = %format!("{error:#}"),
                             "vm.command payload 解析失败，跳过"
+                        );
+                    }
+                }
+                Ok(())
+            }
+        });
+    }
+
+    // 6.1b2 容器生命周期（仅 node / both）：Incus CLI 后端。
+    {
+        let container_transport = Arc::new(transport_config(&credentials, &config));
+        dispatcher.subscribe("container.command", move |message: DownlinkMessage| {
+            let transport = Arc::clone(&container_transport);
+            async move {
+                match crate::container_control::execute_payload(&message.payload).await {
+                    Ok(result) => {
+                        if result.ok {
+                            info!(request_id = %result.request_id, op = %result.op, "container.command 执行成功");
+                        } else {
+                            warn!(
+                                request_id = %result.request_id,
+                                op = %result.op,
+                                error = ?result.error,
+                                "container.command 执行失败"
+                            );
+                        }
+                        report_command_result_with_retry(
+                            &transport,
+                            &result.request_id,
+                            result.ok,
+                            result.data.as_ref(),
+                            result.error.as_deref(),
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        error!(
+                            id = message.id,
+                            error = %format!("{error:#}"),
+                            "container.command payload 解析失败，跳过"
                         );
                     }
                 }
@@ -468,15 +508,18 @@ fn resolve_p2p_distribution(
 /// reboot/destroy 等动作被重复执行；宁可丢一次结果也不重复操作。
 async fn report_command_result_with_retry(
     transport: &TransportConfig,
-    result: &crate::vm_control::CommandResult,
+    request_id: &uuid::Uuid,
+    ok: bool,
+    data: Option<&serde_json::Value>,
+    error: Option<&str>,
 ) {
     for attempt in 1..=3u32 {
         match qe_device_pki_client::command::report_command_result(
             transport,
-            &result.request_id,
-            result.ok,
-            result.data.as_ref(),
-            result.error.as_deref(),
+            request_id,
+            ok,
+            data,
+            error,
         )
         .await
         {
@@ -484,7 +527,7 @@ async fn report_command_result_with_retry(
             Err(error) => {
                 if attempt < 3 {
                     warn!(
-                        request_id = %result.request_id,
+                        request_id = %request_id,
                         attempt,
                         error = %error,
                         "命令结果回传失败，稍后重试"
@@ -492,7 +535,7 @@ async fn report_command_result_with_retry(
                     tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
                 } else {
                     error!(
-                        request_id = %result.request_id,
+                        request_id = %request_id,
                         error = %error,
                         "命令结果回传失败（已重试 3 次，结果可能丢失）"
                     );
