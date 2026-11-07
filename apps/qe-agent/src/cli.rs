@@ -32,8 +32,20 @@ pub enum CliCmd {
         args: vm::VmArgs,
     },
 
+    /// 宿主机 GPU / PCI 显示设备（GPU 直通辅助）
+    Gpu {
+        #[command(subcommand)]
+        cmd: GpuCmd,
+    },
+
     /// 查看本地凭证与宿主机能力
     Status,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GpuCmd {
+    /// 列出可直通的显示设备（读 /sys/bus/pci/devices）
+    List,
 }
 
 pub struct CliCtx {
@@ -57,6 +69,9 @@ pub fn run(ctx: CliCtx) -> Result<()> {
             trust,
         } => block_on(enroll_cmd(&link, wait, wait_secs, trust, &data_dir)),
         CliCmd::Vm { args } => vm::run(args, &data_dir),
+        CliCmd::Gpu { cmd } => match cmd {
+            GpuCmd::List => crate::gpu::list(),
+        },
         CliCmd::Status => status_cmd(slot.as_deref(), &data_dir),
     }
 }

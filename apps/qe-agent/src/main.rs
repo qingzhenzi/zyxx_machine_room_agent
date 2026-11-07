@@ -5,6 +5,7 @@
 mod boot;
 mod caps;
 mod cli;
+mod gpu;
 mod ipc;
 mod logging;
 mod serve;

@@ -126,6 +126,10 @@ pub struct CreateArgs {
     #[arg(long)]
     network: Vec<String>,
 
+    /// 直通的物理 GPU PCI 地址（dddd:bb:dd.f），可重复
+    #[arg(long = "gpu", value_name = "PCI")]
+    gpu: Vec<String>,
+
     /// 图形控制台协议
     #[arg(long, value_enum, default_value = "vnc")]
     display: DisplayArg,
@@ -426,6 +430,13 @@ fn create_vm(hv: &Backend, args: CreateArgs, data_dir: &Path) -> Result<()> {
     for network in &args.network {
         spec.nics
             .push(parse_nic(network).with_context(|| format!("解析 --network {network:?} 失败"))?);
+    }
+    for raw in &args.gpu {
+        spec.gpus.push(
+            virt_core::GpuPassthrough::new(raw.clone())
+                .with_context(|| format!("解析 --gpu {raw:?} 失败（期望 dddd:bb:dd.f）"))?,
+        );
+        println!("将直通 GPU {raw}（宿主机需已绑定 vfio-pci，见 docs/gpu-passthrough.md）");
     }
 
     let dom = hv
