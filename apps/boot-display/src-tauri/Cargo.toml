@@ -31,3 +31,8 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# 磁盘优化：展示层只保留行表级调试信息，关闭增量编译。
+[profile.dev]
+debug = "line-tables-only"
+incremental = false

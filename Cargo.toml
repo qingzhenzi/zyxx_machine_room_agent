@@ -47,3 +47,14 @@ strip = "symbols"
 # 注意不要给它设 panic="abort"：main 里用 catch_unwind 隔离单个检查器的崩溃。
 [profile.release.package.qeaudit]
 opt-level = "z"
+
+# 磁盘优化（2026-11-07）：target 曾达 47G。dev/test 只保留行表级调试信息并关闭
+# 增量编译，避免 target/debug/incremental 无界增长；完整调试用
+# `CARGO_PROFILE_DEV_DEBUG=2 cargo ...`。
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.test]
+debug = "line-tables-only"
+incremental = false
