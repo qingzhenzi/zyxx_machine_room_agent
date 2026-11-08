@@ -88,6 +88,11 @@ fn run_agent(config: &Config) -> i32 {
         }
     };
 
+    // 毫秒级实时指标：独立线程推 device-pki 内存广播，不写 DB。
+    if let Err(error) = crate::live::spawn(config) {
+        warn!(%error, "实时指标推送启动失败；继续使用周期快照");
+    }
+
     // 远端策略只在 mTLS 模式可拉；失败只用 warn，继续用本地间隔。
     let mut intervals = TelemetryIntervals::from_config(config);
     if !config.print && config.is_mtls() {

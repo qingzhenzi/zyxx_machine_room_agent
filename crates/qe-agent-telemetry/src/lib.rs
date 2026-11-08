@@ -38,6 +38,7 @@ pub mod collect;
 pub mod config;
 pub mod external;
 pub mod health;
+pub mod live;
 pub mod mtls;
 pub mod policy;
 pub mod process;
