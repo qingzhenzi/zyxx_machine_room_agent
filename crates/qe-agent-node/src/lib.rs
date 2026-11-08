@@ -20,6 +20,7 @@ use std::pin::Pin;
 /// boxed future 别名（trait 方法返回异步结果，避免 `async fn in trait` 的对象安全问题）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+pub mod agent_control;
 pub mod cache;
 pub mod config;
 pub mod container_control;

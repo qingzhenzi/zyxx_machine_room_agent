@@ -357,6 +357,37 @@ async fn run_inner(config: AgentConfig, p2p_provider: Option<P2pNodeProvider>) -
         });
     }
 
+    // 6.1b3 主机电源控制（agent.command，仅 node / both；默认关闭，需 QE_AGENT_ALLOW_POWEROFF=1）。
+    {
+        let power_transport = Arc::new(transport_config(&credentials, &config));
+        dispatcher.subscribe("agent.command", move |message: DownlinkMessage| {
+            let transport = Arc::clone(&power_transport);
+            async move {
+                match crate::agent_control::execute_payload(&message.payload).await {
+                    Ok(result) => {
+                        if result.ok {
+                            warn!(request_id = %result.request_id, op = %result.op, "agent.command 已调度电源动作");
+                        } else {
+                            info!(request_id = %result.request_id, op = %result.op, error = ?result.error, "agent.command 拒绝执行");
+                        }
+                        report_command_result_with_retry(
+                            &transport,
+                            &result.request_id,
+                            result.ok,
+                            result.data.as_ref(),
+                            result.error.as_deref(),
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        error!(id = message.id, error = %format!("{error:#}"), "agent.command payload 解析失败，跳过");
+                    }
+                }
+                Ok(())
+            }
+        });
+    }
+
     // 6.1c noVNC 隧道（仅 node / both）：vnc.open 到达后异步 spawn 桥接任务，
     // 不阻塞其它下行消息。WS 路径使用设备证书 serial（device-pki 校验一致）。
     {
