@@ -74,7 +74,7 @@ pub fn collect_report(
         .unwrap_or_else(|| health::evaluate_builtin(&signals));
 
     let machine_id = host::machine_id_for(&host.hostname);
-    let sections = build_sections(
+    let mut sections = build_sections(
         config,
         tier,
         &external,
@@ -88,6 +88,10 @@ pub fn collect_report(
         fast_interval_secs,
         full_interval_secs,
     );
+    // 关闭实时推送时，本地持续采样的窗口聚合随本次快照一起提交。
+    if let Some(live) = crate::live::report_section() {
+        sections.insert("live_metrics".to_owned(), live);
+    }
 
     Report {
         schema: SCHEMA_VERSION,
