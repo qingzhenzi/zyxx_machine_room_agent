@@ -91,6 +91,24 @@ pub fn report_section() -> Option<serde_json::Value> {
         (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
     };
     let max = |values: Vec<f64>| values.into_iter().reduce(f64::max);
+    // 原始样本随本次快照批量提交（最多最近 600 个，约 5 分钟 @500ms），
+    // 避免无限增长；聚合之外的明细供控制面追溯。
+    let items: Vec<serde_json::Value> = samples
+        .iter()
+        .rev()
+        .take(600)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|sample| {
+            json!({
+                "ts_ms": sample.at_ms,
+                "cpu": sample.cpu,
+                "memory": sample.memory,
+                "disk": sample.disk,
+            })
+        })
+        .collect();
     let cpu_values: Vec<f64> = samples.iter().filter_map(|s| s.cpu).collect();
     let memory_values: Vec<f64> = samples.iter().filter_map(|s| s.memory).collect();
     let disk_values: Vec<f64> = samples.iter().filter_map(|s| s.disk).collect();
@@ -104,6 +122,7 @@ pub fn report_section() -> Option<serde_json::Value> {
         "disk_avg": avg(disk_values.clone()),
         "disk_max": max(disk_values),
         "source": "local-buffer",
+        "items": items,
     }))
 }
 
@@ -230,6 +249,7 @@ mod tests {
         assert_eq!(section["samples"], 2);
         assert_eq!(section["cpu_max"], 30.0);
         assert_eq!(section["memory_avg"], 50.0);
+        assert_eq!(section["items"].as_array().unwrap().len(), 2);
         // 不消费缓冲：上报失败时本地样本仍保留，下一份快照继续聚合。
         assert_eq!(report_section().expect("still buffered")["samples"], 2);
     }
