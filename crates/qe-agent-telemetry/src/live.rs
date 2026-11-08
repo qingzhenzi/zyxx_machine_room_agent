@@ -74,11 +74,12 @@ fn read_cpu() -> Option<cpu::CpuTimes> {
         .and_then(|content| cpu::CpuTimes::parse_stat(&content))
 }
 
-/// 取走并聚合自上次快照以来的本地样本（用于 `sections.live_metrics`）。
+/// 聚合本地环形缓冲（不消费）：即使本次上报失败，样本仍保留，下一份快照继续提交。
+/// 缓冲上限 1h，滚动窗口；`sections.live_metrics` 表示最近窗口的本地记录。
 pub fn report_section() -> Option<serde_json::Value> {
     let samples: Vec<LiveSample> = {
-        let mut queue = buffer().lock().unwrap_or_else(|e| e.into_inner());
-        queue.drain(..).collect()
+        let queue = buffer().lock().unwrap_or_else(|e| e.into_inner());
+        queue.iter().copied().collect()
     };
     if samples.is_empty() {
         return None;
@@ -229,8 +230,8 @@ mod tests {
         assert_eq!(section["samples"], 2);
         assert_eq!(section["cpu_max"], 30.0);
         assert_eq!(section["memory_avg"], 50.0);
-        // 取出后缓冲清空，不会重复提交。
-        assert!(report_section().is_none());
+        // 不消费缓冲：上报失败时本地样本仍保留，下一份快照继续聚合。
+        assert_eq!(report_section().expect("still buffered")["samples"], 2);
     }
 
     #[test]
