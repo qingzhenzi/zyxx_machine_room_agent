@@ -4,9 +4,6 @@
 *.log
 
 # 嵌套独立仓库：各自维护历史，不纳入本仓库
-/crates/qeaudit/
-/crates/qe-container/
-/crates/virt-crate/
 
 # release bundles
 /dist/
