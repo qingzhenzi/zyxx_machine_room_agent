@@ -224,6 +224,20 @@ if [[ "${INSTALL_GUI}" -eq 1 ]]; then
     fi
 fi
 
+# libvirt-guests：避免 VM 无法 ACPI 响应时 host 关机无限卡住
+if [[ -f /etc/default/libvirt-guests ]] && command -v virsh >/dev/null 2>&1; then
+    cp -a /etc/default/libvirt-guests /etc/default/libvirt-guests.qe-backup 2>/dev/null || true
+    for kv in "ON_SHUTDOWN=shutdown" "PARALLEL_SHUTDOWN=1" "SHUTDOWN_TIMEOUT=30"; do
+        k="${kv%%=*}"; v="${kv#*=}"
+        if grep -q "^${k}=" /etc/default/libvirt-guests; then
+            sed -i "s|^${k}=.*|${k}=${v}|" /etc/default/libvirt-guests
+        else
+            echo "${k}=${v}" >> /etc/default/libvirt-guests
+        fi
+    done
+    log "已配置 libvirt-guests 关机超时（30s / 并行）"
+fi
+
 systemctl daemon-reload
 log "已执行 systemctl daemon-reload"
 
