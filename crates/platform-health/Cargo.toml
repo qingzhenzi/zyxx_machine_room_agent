@@ -1,0 +1,63 @@
+[package]
+name = "platform-health"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Cross-platform device health collection and evaluation: one JSON snapshot, one health verdict."
+keywords = ["monitoring", "health", "sysinfo", "device", "inventory"]
+categories = ["os", "hardware-support"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.39"
+# Optional GPU support (NVIDIA). MIT/Apache-2.0.
+nvml-wrapper = { version = "0.13", optional = true }
+
+[features]
+# Free collectors that read sysfs/sysinfo and shell out only to ubiquitous,
+# fast tools. No new crate dependencies; each degrades gracefully when the
+# source is unavailable. These are on by default.
+default = [
+    "battery",
+    "wifi",
+    "firmware",
+    "edac",
+    "clock",
+    "users",
+    "ram",
+    "cpu-ext",
+    "display",
+]
+battery = []
+wifi = []
+firmware = []
+edac = []
+clock = []
+users = []
+ram = []
+cpu-ext = []
+display = []
+# Collectors that add a dependency or shell out to an external (possibly
+# separately-licensed) tool that may be absent or slow. Off by default; enable
+# per deployment. Each records a `missing_tool` section when the tool is absent.
+gpu = ["dep:nvml-wrapper"]
+smart = []
+security = []
+containers = []
+packages = []
+# Everything at once.
+full = [
+    "default",
+    "gpu",
+    "smart",
+    "security",
+    "containers",
+    "packages",
+]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

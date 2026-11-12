@@ -1,0 +1,14 @@
+# 可选：国内网络下用 rsproxy 镜像加速拉取依赖。
+# 如果部署环境能直连 crates.io，删掉本文件即可。
+[source.crates-io]
+replace-with = "rsproxy"
+
+[source.rsproxy]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true
+
+[http]
+multiplexing = false
+timeout = 60
