@@ -155,15 +155,31 @@ if [[ "${INSTALL_DISPLAY}" -eq 1 ]]; then
     if [[ -n "${DISPLAY_SRC}" ]]; then
         install -m 0755 "${DISPLAY_SRC}" "${BIN_DIR}/boot-display"
         log "已安装 ${BIN_DIR}/boot-display（来源：${DISPLAY_SRC}）"
-        if grep -q '^QE_BOOT_DISPLAY_BIN=' "${ENV_DST}" 2>/dev/null; then
-            sed -i "s|^QE_BOOT_DISPLAY_BIN=.*|QE_BOOT_DISPLAY_BIN=${BIN_DIR}/boot-display|" "${ENV_DST}"
-        else
-            {
-                printf '\n# 展示层（boot-display）可执行文件；agent 启动时 spawn + supervise\n'
-                printf 'QE_BOOT_DISPLAY_BIN=%s\n' "${BIN_DIR}/boot-display"
-            } >>"${ENV_DST}"
+        WRAPPER_SRC="${REPO_ROOT}/scripts/release/qe-boot-display-session.sh"
+        if [[ -x "${WRAPPER_SRC}" ]]; then
+            install -m 0755 "${WRAPPER_SRC}" "${BIN_DIR}/qe-boot-display-session"
         fi
-        log "已设置 QE_BOOT_DISPLAY_BIN=${BIN_DIR}/boot-display"
+        if compgen -G '/run/user/*/wayland-*' >/dev/null 2>&1 || [[ -S /tmp/.X11-unix/X0 ]]; then
+            BOOT_BIN="${BIN_DIR}/qe-boot-display-session"
+            [[ -x "${BOOT_BIN}" ]] || BOOT_BIN="${BIN_DIR}/boot-display"
+        else
+            BOOT_BIN=""
+            log "未检测到图形会话：跳过 boot-display 自启（避免 root GTK 崩溃循环）"
+        fi
+        if [[ -n "${BOOT_BIN}" ]]; then
+            if grep -q '^QE_BOOT_DISPLAY_BIN=' "${ENV_DST}" 2>/dev/null; then
+                sed -i "s|^QE_BOOT_DISPLAY_BIN=.*|QE_BOOT_DISPLAY_BIN=${BOOT_BIN}|" "${ENV_DST}"
+            else
+                {
+                    printf '\n# 展示层（boot-display）可执行文件；agent 启动时 spawn + supervise\n'
+                    printf 'QE_BOOT_DISPLAY_BIN=%s\n' "${BOOT_BIN}"
+                } >>"${ENV_DST}"
+            fi
+            if ! grep -q '^QE_BOOT_DISPLAY_EXIT_AFTER_BOOT=' "${ENV_DST}" 2>/dev/null; then
+                printf 'QE_BOOT_DISPLAY_EXIT_AFTER_BOOT=1\n' >>"${ENV_DST}"
+            fi
+            log "已设置 QE_BOOT_DISPLAY_BIN=${BOOT_BIN}，boot 完成后自动退出"
+        fi
     else
         log "未找到预构建 boot-display，跳过展示层安装（不影响 daemon；display 阶段会 skipped）。"
         log "构建：pnpm --dir apps/boot-display tauri build"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Link2, ScrollText, Settings } from 'lucide-vue-next'
+import { Activity, Link2, Power, ScrollText, Settings } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { Component } from 'vue'
@@ -20,6 +20,7 @@ const primaryItems = computed<NavItem[]>(() => [
   { label: t('状态'), path: '/', icon: Activity },
   { label: t('注册'), path: '/enroll', icon: Link2 },
   { label: t('日志'), path: '/logs', icon: ScrollText },
+  { label: t('电源'), path: '/power', icon: Power },
 ])
 
 const settingsItem = computed<NavItem>(() => ({

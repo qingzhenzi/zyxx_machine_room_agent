@@ -204,6 +204,7 @@ if [[ "$INSTALL_DISPLAY" -eq 1 && -x "$BUNDLE_DIR/bin/boot-display" ]]; then
   # 只在检测到图形会话时启用，避免 root systemd 下 GTK 无 DISPLAY 崩溃循环。
   if compgen -G '/run/user/*/wayland-*' >/dev/null 2>&1 || [[ -S /tmp/.X11-unix/X0 ]]; then
     set_env QE_BOOT_DISPLAY_BIN "$BIN_DIR/qe-boot-display-session"
+    set_env QE_BOOT_DISPLAY_EXIT_AFTER_BOOT 1
   else
     log "未检测到图形会话，跳过 boot-display 自启"
   fi

@@ -34,6 +34,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '注册', icon: 'link' },
       },
       {
+        path: 'power',
+        name: 'power',
+        component: () => import('@/views/PowerView.vue'),
+        meta: { title: '电源', icon: 'power' },
+      },
+      {
         path: 'logs',
         name: 'logs',
         component: () => import('@/views/LogsView.vue'),

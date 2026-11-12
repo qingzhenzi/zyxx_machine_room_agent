@@ -24,6 +24,7 @@ pub mod agent_control;
 pub mod cache;
 pub mod config;
 pub mod container_control;
+pub mod host_power;
 pub mod image_make;
 pub mod importer;
 pub mod job;

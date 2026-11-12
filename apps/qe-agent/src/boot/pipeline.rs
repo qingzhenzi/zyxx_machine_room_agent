@@ -110,6 +110,12 @@ fn run_all(state: SharedState, config: BootConfig, data_dir: PathBuf, slot: Opti
     // 5. 注册（配置不足/失败都不阻塞）。
     enroll::run(&state, &data_dir, slot.as_deref());
 
-    // 6. 服务（P2P 真启动；容器/虚拟化深度探测）。
+    // 6. 桌面机器：boot 关键阶段完成就退出展示层，不阻塞在后续深度服务探测上。
+    if config.display.exit_after_boot {
+        display::shutdown();
+        eprintln!("boot-display 已按 exit_after_boot 配置退出");
+    }
+
+    // 7. 服务（P2P 真启动；容器/虚拟化深度探测）。
     services::run(&state, &data_dir);
 }

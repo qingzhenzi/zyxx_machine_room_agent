@@ -19,6 +19,8 @@ use crate::boot::state::SharedState;
 static DISPLAY_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 /// 首次 spawn 是否已经完成（supervise 线程必须等它，否则会和初始 spawn 竞态拉起两份）。
 static DISPLAY_INIT_DONE: AtomicBool = AtomicBool::new(false);
+/// boot 流水线结束后要求 supervise 不再重启。
+static DISPLAY_STOP: AtomicBool = AtomicBool::new(false);
 
 struct InitDoneGuard;
 impl Drop for InitDoneGuard {
@@ -86,6 +88,17 @@ pub fn spawn_if_enabled(state: &SharedState, config: &DisplayConfig) {
     }
 }
 
+/// boot 流水线结束后退出展示层（配置 `exit_after_boot` / 环境变量）。
+pub fn shutdown() {
+    DISPLAY_STOP.store(true, Ordering::Release);
+    if let Ok(mut guard) = DISPLAY_CHILD.lock()
+        && let Some(mut child) = guard.take()
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 /// supervise 线程：boot-display 崩溃后按退避重启。
 ///
 /// 拿不到子进程句柄（未启用/启动失败）时直接退出，不做任何事。
@@ -102,6 +115,9 @@ pub fn supervise(config: DisplayConfig) {
     let max_backoff = Duration::from_secs(60);
 
     loop {
+        if DISPLAY_STOP.load(Ordering::Acquire) {
+            return;
+        }
         let running = {
             let mut guard = match DISPLAY_CHILD.lock() {
                 Ok(guard) => guard,
@@ -132,8 +148,8 @@ pub fn supervise(config: DisplayConfig) {
             std::thread::sleep(backoff);
             backoff = (backoff * 2).min(max_backoff);
         } else {
-            // 正常运行时每 5s 轮询一次。
-            std::thread::sleep(Duration::from_secs(5));
+            // 正常运行时每 5s 轮询一次；shutdown() 后下一轮直接退出。
+            std::thread::sleep(Duration::from_secs(1));
         }
     }
 }

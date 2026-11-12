@@ -90,6 +90,7 @@ pub fn run() {
             ipc::agent_ipc_logs,
             ipc::agent_ipc_policy,
             ipc::agent_ipc_enroll,
+            ipc::agent_ipc_power,
             ipc::agent_ipc_endpoint,
             setup::agent_setup_probe,
             setup::agent_show_main_window,

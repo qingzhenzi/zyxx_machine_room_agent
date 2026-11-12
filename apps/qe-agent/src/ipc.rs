@@ -27,6 +27,18 @@ struct DisplayPush {
     params: Value,
 }
 
+/// `POST /v1/power` 请求体：本机 GUI / CLI 触发的电源动作。
+#[derive(Debug, Deserialize)]
+struct PowerRequest {
+    action: String,
+    #[serde(default = "default_true")]
+    graceful: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// 请求头上限。
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 /// 请求体上限（注册链接很小，256KiB 足够）。
@@ -298,6 +310,15 @@ pub(crate) async fn route(
                         )
                     }
                     None => (400, error_json("bad_request", "缺少 interval_secs")),
+                },
+                Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
+            }
+        }
+        ("POST", "/v1/power") => {
+            match serde_json::from_slice::<PowerRequest>(body) {
+                Ok(request) => match qe_agent_node::agent_control::execute_local(&request.action, request.graceful).await {
+                    Ok(data) => (200, json!({ "ok": true, "data": data })),
+                    Err(error) => (400, error_json("power_failed", error.to_string())),
                 },
                 Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
             }

@@ -38,6 +38,15 @@ pub enum CliCmd {
         cmd: GpuCmd,
     },
 
+    /// 关机 / 重启 / 伪关机（先停 VM、容器）
+    Power {
+        /// shutdown / reboot / fake
+        action: String,
+        /// 跳过停 VM/容器（只用于排障；可能让 host 卡在 shutdown）
+        #[arg(long)]
+        no_graceful: bool,
+    },
+
     /// 查看本地凭证与宿主机能力
     Status,
 }
@@ -72,6 +81,14 @@ pub fn run(ctx: CliCtx) -> Result<()> {
         CliCmd::Gpu { cmd } => match cmd {
             GpuCmd::List => crate::gpu::list(),
         },
+        CliCmd::Power {
+            action,
+            no_graceful,
+        } => block_on(async {
+            let value = qe_agent_node::agent_control::execute_local(&action, !no_graceful).await?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }),
         CliCmd::Status => status_cmd(slot.as_deref(), &data_dir),
     }
 }

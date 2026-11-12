@@ -46,6 +46,18 @@ export interface AgentPolicy {
 }
 
 /** Shape of `GET /v1/logs`. */
+export interface PowerReply {
+  ok: boolean
+  data?: {
+    action?: string
+    fake?: boolean
+    cleanup?: { vms?: string[]; containers?: string[] } | null
+    scheduled?: boolean
+    delay_secs?: number
+    message?: string
+  }
+}
+
 export interface AgentLogsReply {
   items: string[]
 }
@@ -72,6 +84,10 @@ export function ipcStatus(): Promise<AgentStatus> {
 
 export function ipcLogs(limit = 200): Promise<AgentLogsReply> {
   return call<AgentLogsReply>('agent_ipc_logs', { limit })
+}
+
+export function ipcPower(action: string, graceful = true): Promise<PowerReply> {
+  return call<PowerReply>('agent_ipc_power', { action, graceful })
 }
 
 export function ipcPolicy(): Promise<AgentPolicy> {

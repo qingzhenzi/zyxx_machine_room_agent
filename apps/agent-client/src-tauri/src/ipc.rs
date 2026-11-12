@@ -277,6 +277,22 @@ pub async fn agent_ipc_enroll(
 }
 
 #[tauri::command]
+pub async fn agent_ipc_power(action: String, graceful: Option<bool>) -> Result<Value, String> {
+    let body = serde_json::json!({
+        "action": action,
+        "graceful": graceful.unwrap_or(true),
+    })
+    .to_string();
+    run_blocking(
+        "POST",
+        "/v1/power".to_string(),
+        Some(body),
+        Duration::from_secs(120),
+    )
+    .await
+}
+
+#[tauri::command]
 pub fn agent_ipc_endpoint() -> String {
     endpoint()
 }

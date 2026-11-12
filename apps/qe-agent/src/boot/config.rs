@@ -46,6 +46,9 @@ pub struct DisplayConfig {
     pub enabled: bool,
     /// 可执行文件路径；空 = 从 PATH 找 `boot-display`。
     pub bin: Option<PathBuf>,
+    /// boot 流水线跑完后是否退出 boot-display（把桌面还给用户）。
+    /// 默认 false（保留常驻展示层）；安装器会为桌面机器设为 true。
+    pub exit_after_boot: bool,
 }
 
 impl Default for DisplayConfig {
@@ -53,6 +56,7 @@ impl Default for DisplayConfig {
         Self {
             enabled: true,
             bin: None,
+            exit_after_boot: false,
         }
     }
 }
@@ -79,6 +83,9 @@ impl BootConfig {
         }
         if let Some(bin) = std::env::var_os("QE_BOOT_DISPLAY_BIN") {
             config.display.bin = Some(PathBuf::from(bin));
+        }
+        if let Ok(value) = std::env::var("QE_BOOT_DISPLAY_EXIT_AFTER_BOOT") {
+            config.display.exit_after_boot = matches!(value.as_str(), "1" | "true" | "on");
         }
         if let Ok(value) = std::env::var("QE_BOOT_CHECKS_INTERVAL_SECS")
             && let Ok(secs) = value.parse::<u64>()
