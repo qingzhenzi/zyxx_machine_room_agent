@@ -48,9 +48,25 @@ Windows 第一版不做（Linux-first）；后续可用 named pipe + 同一套 J
 | GET | `/v1/policy` | 当前采集间隔（本地解析值；远端策略暂未回读） |
 | GET | `/v1/logs?limit=` | 最近日志（内存环形缓冲，最多 2000 行） |
 | POST | `/v1/enroll` | 用注册链接注册（阻塞到成功或 approval pending） |
+| POST | `/v1/power` | 本机关机/重启/伪关机（先停 VM/容器；`QE_AGENT_ALLOW_POWEROFF=1`） |
 
 后续（P3.5/P4）：`GET /v1/transfers`（image.pull 任务）、`GET /v1/policy` 回读远端 revision、
 日志结构化（level/target/ts）、托盘/深链直接触发 enroll。
+
+### POST /v1/power
+
+GUI「电源」页和 CLI `qe-agent cli power` 使用同一入口：
+
+```json
+{ "action": "shutdown", "graceful": true }
+```
+
+- `action`: `shutdown` / `reboot` / `fake`
+- `graceful`: 默认 true；真正断电前先 `virsh shutdown`/超时 `destroy` VM、
+  `incus stop -f` 容器
+- `fake` 只写 `/run/qe-agent/fake-shutdown`，不断电、不清理 VM
+- 未设置 `QE_AGENT_ALLOW_POWEROFF=1` 返回 400
+- 动作会写入 `/run/qe-agent/last-power.json`
 
 ### GET /v1/status
 
