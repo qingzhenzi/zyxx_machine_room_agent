@@ -183,17 +183,21 @@ pub async fn execute(action: PowerAction, graceful: bool) -> Result<Value> {
     let program_for_result = program.clone();
     let action_arg = action.systemctl_action();
     let delay = delay_secs();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(delay)).await;
-        match Command::new(&program).arg(action_arg).status().await {
-            Ok(status) => {
-                tracing::warn!(program = %program, action = action_arg, code = ?status.code(), "电源动作已执行")
-            }
-            Err(error) => {
-                tracing::error!(program = %program, action = action_arg, %error, "电源动作执行失败")
-            }
-        }
-    });
+    // 不能只 spawn 线程/任务：CLI 进程返回后会把它们一起结束。
+    // 交给 systemd 的 transient timer，daemon / CLI 都能真正执行。
+    let unit = format!("qe-agent-power-{}", std::process::id());
+    let delay_arg = format!("--on-active={delay}s");
+    let launched = std::process::Command::new("systemd-run")
+        .args(["--quiet", "--collect", &delay_arg, "--unit", &unit, &program, action_arg])
+        .status();
+    if !matches!(launched, Ok(status) if status.success()) {
+        // 兜底：setsid + nohup，至少脱离当前进程组。
+        let _ = std::process::Command::new("setsid")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("sleep {delay}; exec {program} {action_arg}"))
+            .status();
+    }
 
     Ok(json!({
         "action": action.as_str(),
