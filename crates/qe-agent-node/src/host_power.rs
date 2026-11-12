@@ -107,6 +107,42 @@ async fn running_containers() -> Vec<String> {
     names
 }
 
+/// 关机/重启前重新武装 WOL。部分网卡驱动在 shutdown 时会清掉 Wake-on 设置，
+/// 只在开机时跑 ethtool 不够，所以真正断电前再写一遍。
+fn arm_wol() {
+    let iface = std::env::var("QE_AGENT_WOL_INTERFACE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            let out = std::process::Command::new("ip")
+                .args(["-o", "-4", "route", "show", "default"])
+                .output()
+                .ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let dev = text
+                .split("dev ")
+                .nth(1)?
+                .split_whitespace()
+                .next()?
+                .to_owned();
+            Some(dev)
+        });
+    let Some(iface) = iface else { return };
+    match std::process::Command::new("ethtool")
+        .args(["-s", &iface, "wol", "g"])
+        .status()
+    {
+        Ok(status) => tracing::info!(%iface, code = ?status.code(), "关机前已重新武装 WOL"),
+        Err(error) => tracing::warn!(%iface, %error, "关机前 arm WOL 失败（ethtool 不存在？）"),
+    }
+    let wakeup = format!("/sys/class/net/{iface}/device/power/wakeup");
+    if let Ok(current) = std::fs::read_to_string(&wakeup)
+        && current.trim() != "enabled"
+    {
+        let _ = std::fs::write(&wakeup, "enabled");
+    }
+}
+
 /// 停 VM / 容器；返回本机实际处理的名，供日志和页面展示。
 pub async fn cleanup() -> Value {
     let vms = running_vms().await;
@@ -172,6 +208,7 @@ pub async fn execute(action: PowerAction, graceful: bool) -> Result<Value> {
         }));
     }
 
+    arm_wol();
     let cleanup = if graceful {
         Some(cleanup().await)
     } else {
@@ -188,7 +225,15 @@ pub async fn execute(action: PowerAction, graceful: bool) -> Result<Value> {
     let unit = format!("qe-agent-power-{}", std::process::id());
     let delay_arg = format!("--on-active={delay}s");
     let launched = std::process::Command::new("systemd-run")
-        .args(["--quiet", "--collect", &delay_arg, "--unit", &unit, &program, action_arg])
+        .args([
+            "--quiet",
+            "--collect",
+            &delay_arg,
+            "--unit",
+            &unit,
+            &program,
+            action_arg,
+        ])
         .status();
     if !matches!(launched, Ok(status) if status.success()) {
         // 兜底：setsid + nohup，至少脱离当前进程组。
