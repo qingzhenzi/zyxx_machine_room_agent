@@ -150,24 +150,6 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
   exit 0
 fi
 
-# 发行版依赖提示
-if [[ "$INSTALL_GUI" -eq 1 && -x "$BUNDLE_DIR/bin/qe-agent-client" ]]; then
-  missing="$(ldd "$BUNDLE_DIR/bin/qe-agent-client" 2>/dev/null | grep 'not found' || true)"
-  if [[ -n "$missing" ]]; then
-    log "警告：agent-client 缺少共享库："
-    printf '%s\n' "$missing"
-    if [[ -f /etc/os-release ]]; then
-      local distro_like
-      distro_like="$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -1)"
-      [[ -n "$distro_like" ]] || distro_like="$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -1)"
-      case "$distro_like" in
-        *debian*|*ubuntu*) log "Debian/Ubuntu 可尝试：sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2";;
-        *arch*) log "Arch 可尝试：sudo pacman -S webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg";;
-      esac
-    fi
-  fi
-fi
-
 # 依赖提示（不自动联网安装；目标机需有 libvirt WebKitGTK 等）
 check_binary_libs() {
   local file="$1" label="$2"
