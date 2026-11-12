@@ -1,0 +1,100 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'release version, e.g. 0.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout room_agent
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout agent-client
+        uses: actions/checkout@v4
+        with:
+          repository: qingzhenzi/agent-client
+          ref: main
+          path: apps/agent-client
+          token: ${{ secrets.AGENT_CLIENT_REPO_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config patchelf libssl-dev libvirt-dev libxdo-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set version
+        run: bash scripts/set-version.sh "${{ steps.version.outputs.version }}"
+
+      - name: Build qe-agent
+        run: cargo build --release -p qe-agent
+
+      - name: Build boot-display
+        run: |
+          cd apps/boot-display
+          pnpm install --frozen-lockfile
+          pnpm exec tauri build --no-bundle
+
+      - name: Build agent-client
+        run: |
+          cd apps/agent-client
+          pnpm install --frozen-lockfile
+          pnpm exec tauri build --no-bundle
+
+      - name: Package release bundle
+        run: VERSION="${{ steps.version.outputs.version }}" bash scripts/package-release.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qestudio-agent-${{ steps.version.outputs.version }}
+          path: dist/qestudio-agent-*.tar.gz
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/qestudio-agent-*.tar.gz
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
