@@ -60,7 +60,16 @@ jobs:
         run: bash scripts/set-version.sh "${{ steps.version.outputs.version }}"
 
       - name: Build qe-agent
-        run: cargo build --release -p qe-agent
+        run: |
+          set -o pipefail
+          cargo build --release -p qe-agent 2>&1 | tee /tmp/qe-agent-build.log
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qe-agent-build-log
+          path: /tmp/qe-agent-build.log
 
       - name: Build boot-display
         run: |
