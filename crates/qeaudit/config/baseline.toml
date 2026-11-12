@@ -1,0 +1,96 @@
+# qeaudit 基线策略示例
+#
+# 用法: qeaudit --config /etc/qeaudit/baseline.toml scan
+# 说明: 所有字段都有内置默认值，这里只写需要覆盖的部分；
+#       字段名写错会直接报错（deny_unknown_fields），避免"配置了但没生效"。
+
+[profile]
+name = "linux-baseline-v1"
+framework = "等保2.0 三级 / CIS Linux Benchmark"
+# asset_id 留空则自动使用 hostname
+asset_id = ""
+
+# ---------------------------------------------------------------- 引导
+[grub]
+# 带 `=` 的全等匹配，裸 flag 按 key 匹配
+required_params = ["audit=1", "init_on_alloc=1", "lockdown=integrity"]
+forbidden_params = ["selinux=0", "nosmap", "nokaslr", "init=/bin/sh"]
+require_password = true
+require_secure_boot = false      # 老机器/BISO 环境先关掉，避免大量噪声
+require_lockdown = true
+check_config_effective = true
+
+# ---------------------------------------------------------------- 内核模块加载面
+[kernel]
+# 未签名模块必须被拒绝：sig_enforce / CONFIG_MODULE_SIG_FORCE / modules_disabled 任一成立即可
+require_signed_modules = true
+# 启动后冻结模块加载：更彻底，但会禁用热插拔/USB/后续驱动，默认不要求
+require_modules_disabled = false
+# 禁用 kexec：否则 root 可以 kexec 一个未加固内核绕过所有运行时限制
+require_kexec_disabled = false
+
+# ---------------------------------------------------------------- 虚拟化
+[virt]
+expect = "any"                   # any | bare_metal | virtual_machine
+require_iommu = true
+forbid_nested = true
+expected_hypervisor = ""
+
+# ---------------------------------------------------------------- 空间
+[space]
+check_mount_options = true
+restricted_mounts = ["/tmp", "/dev/shm", "/var/tmp"]
+
+[[space.mounts]]
+path = "/"
+min_free_percent = 10
+min_free_bytes = 1073741824      # 1 GiB
+max_inode_used_percent = 90
+
+[[space.mounts]]
+path = "/var"
+min_free_percent = 15
+min_free_bytes = 2147483648      # 2 GiB，日志/容器镜像主要写这里
+max_inode_used_percent = 90
+
+# ---------------------------------------------------------------- 设备
+[device]
+# 模块要求与业务强相关，这里留空；按需填，例如 ["8021q", "nf_conntrack"]
+required_modules = []
+required_classes = ["net", "block", "tty"]
+critical_pci_classes = ["0200", "0280", "0108", "0300"]
+fail_on_failed_units = true
+max_thermal_c = 95
+
+# ---------------------------------------------------------------- 网络
+[network]
+connectivity_targets = ["223.5.5.5:443", "1.1.1.1:443"]
+connectivity_timeout_ms = 3000
+min_up_interfaces = 1
+forbidden_listen_ports = [21, 23, 3389]
+require_firewall = true
+enforce_sysctl = true
+
+# ---------------------------------------------------------------- root 限制
+[root]
+check_sshd = true
+require_lsm = true
+enforce_sysctl = true
+max_full_cap_root_procs = 10     # 服务器建议 3，桌面/容器宿主可放宽
+
+# ---------------------------------------------------------------- 进程保护
+[process]
+require_no_new_privs = true      # 配合 --harden 或 systemd NoNewPrivileges=yes
+require_seccomp = false          # 需要自建 seccomp 过滤器后才打开
+check_systemd_unit = true
+min_hardening_score = 4
+check_self = true
+
+# 受保护进程示例：按实际业务填写，留空则本项跳过
+# [[process.protected]]
+# name = "sshd"
+# max_oom_score_adj = -500
+#
+# [[process.protected]]
+# name = "myapp"
+# max_oom_score_adj = -900

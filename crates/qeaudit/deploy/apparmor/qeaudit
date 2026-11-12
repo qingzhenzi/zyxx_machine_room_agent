@@ -1,0 +1,66 @@
+# qeaudit 的 AppArmor 模板（可选，纵深防御用）
+#
+# 安装:
+#   install -D -m0644 deploy/apparmor/qeaudit /etc/apparmor.d/usr.local.bin.qeaudit
+#   apparmor_parser -r /etc/apparmor.d/usr.local.bin.qeaudit
+#
+# 注意: 本 profile 允许读取 /proc/** 与 /sys/**，这是核查所必需的；
+#       它限制的是"写"与"执行"，以及禁止访问与该工具无关的敏感路径。
+
+#include <tunables/global>
+
+profile qeaudit /usr/local/bin/qeaudit flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # ---- 只读的核查面 ----
+  /proc/ r,
+  /proc/** r,
+  /sys/ r,
+  /sys/** r,
+  /etc/ r,
+  /etc/** r,
+  /boot/ r,
+  /boot/** r,
+  /usr/lib/os-release r,
+  /run/systemd/ r,
+  /run/systemd/** r,
+
+  # ---- 报告输出 ----
+  /var/lib/qeaudit/ rw,
+  /var/lib/qeaudit/** rw,
+
+  # ---- 允许执行的只读查询命令 ----
+  /usr/bin/systemctl ix,
+  /usr/bin/nft ix,
+  /usr/sbin/iptables-save ix,
+  /usr/sbin/nft ix,
+  /usr/bin/firewall-cmd ix,
+  /usr/sbin/ufw ix,
+  /usr/bin/mokutil ix,
+  /usr/bin/systemd-detect-virt ix,
+
+  # ---- 明确拒绝 ----
+  deny /etc/shadow w,
+  deny /etc/shadow- w,
+  deny /etc/gshadow w,
+  deny /root/** rw,
+  deny /home/** rw,
+  deny /tmp/** w,
+  deny /var/tmp/** w,
+  deny @{PROC}/kcore r,
+  deny @{PROC}/sysrq-trigger w,
+  deny /sys/firmware/efi/efivars/** w,
+
+  # 网络：只允许 TCP/UDP 用于连通性探测，禁止 raw/packet
+  network inet stream,
+  network inet6 stream,
+  deny network raw,
+  deny network packet,
+  deny network netlink,
+
+  # 不允许挂载、切换命名空间
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny /sys/[^f]*/** wklx,
+}

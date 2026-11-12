@@ -1,0 +1,13 @@
+[package]
+name = "virt-kvm"
+description = "KVM backend for virt-core: /dev/kvm via kvm-ioctls"
+version.workspace = true
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[dependencies]
+virt-core = { workspace = true }
+kvm-ioctls = { workspace = true }
+kvm-bindings = { workspace = true }
+thiserror = { workspace = true }

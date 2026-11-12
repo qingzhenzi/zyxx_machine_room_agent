@@ -1,0 +1,13 @@
+# Reuse the same crates.io mirror as the rest of the QEStudio workspace.
+[source.crates-io]
+replace-with = "rsproxy"
+
+[source.rsproxy]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true
+
+[http]
+multiplexing = false
+timeout = 60

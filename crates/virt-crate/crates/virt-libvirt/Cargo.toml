@@ -1,0 +1,12 @@
+[package]
+name = "virt-libvirt"
+description = "libvirt backend for virt-core: full VM lifecycle management via libvirtd"
+version.workspace = true
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[dependencies]
+virt-core = { workspace = true }
+virt = { workspace = true }
+thiserror = { workspace = true }

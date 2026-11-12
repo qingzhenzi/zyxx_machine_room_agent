@@ -1,0 +1,48 @@
+# 开机画面服务模板（文本界面接管 tty1）
+#
+# 安装:
+#   install -m0644 deploy/boot-screen.service /etc/systemd/system/boot-screen.service
+#   systemctl daemon-reload
+#   systemctl mask getty@tty1.service
+#   systemctl enable --now boot-screen.service
+#
+# 验证:
+#   systemd-analyze critical-chain boot-screen.service
+#   journalctl -u boot-screen.service -b
+#
+# 注意: ExecStart 指向你自己的程序，且程序需要:
+#   1) 首帧画完后 sd_notify(READY=1)（配合 Type=notify）
+#   2) 冷启动时自己清屏，避免内核日志残影
+
+[Unit]
+Description=Boot screen (takes over tty1)
+After=systemd-vconsole-setup.service plymouth-quit-wait.service
+Before=getty@tty1.service
+Conflicts=getty@tty1.service
+ConditionKernelCommandLine=!systemd.unit=rescue.target
+ConditionPathExists=/dev/tty1
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/myapp --boot-screen
+
+# 独占 tty1
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+# 崩了要能自己回来
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+
+# 开机时 CPU 很挤，给画面一点优先级
+Nice=-5
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

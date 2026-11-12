@@ -1,0 +1,62 @@
+# qeaudit 以 oneshot 方式运行，由 timer 触发；也可被 CI/巡检平台直接调用。
+#
+# 安装:
+#   install -m0755 target/release/qeaudit /usr/local/bin/qeaudit
+#   install -D -m0644 config/baseline.toml /etc/qeaudit/baseline.toml
+#   install -m0644 deploy/qeaudit.service deploy/qeaudit.timer /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now qeaudit.timer
+
+[Unit]
+Description=qeaudit Linux 安全基线核查
+Documentation=file:/usr/share/doc/qeaudit/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# --fail-on never：定时任务不应该因为发现风险而被 systemd 标记为 failed，
+# 风险信息在报告里；流水线场景才用 --fail-on fail 卡门禁。
+ExecStart=/usr/local/bin/qeaudit --config /etc/qeaudit/baseline.toml --harden \
+    scan --format json --out /var/lib/qeaudit/report.json --fail-on never
+
+# 需要读 /etc/shadow(VmPasswd)、别的进程 CapEff(/proc)、dmesg、/dev/kvm
+User=root
+StateDirectory=qeaudit
+StateDirectoryMode=0700
+UMask=0077
+
+# ---- 进程自我保护（不写一行代码的沙箱）----
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount
+# 只保留核查真正需要的能力：
+#   DAC_READ_SEARCH 读 /etc/shadow
+#   SYS_PTRACE       读他人 /proc/<pid>/status 的 CapEff
+#   SYSLOG           读内核日志判定设备错误
+#   NET_ADMIN        读 nftables 规则（按需）
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_SYSLOG CAP_NET_ADMIN
+AmbientCapabilities=
+OOMScoreAdjust=-900
+Nice=-5
+
+# 自身进程若意外退出，交给 systemd 拉起（oneshot 配合 timer 亦可）
+Restart=no
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target

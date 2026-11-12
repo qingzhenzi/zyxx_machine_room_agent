@@ -1,0 +1,12 @@
+[Unit]
+Description=每日执行 qeaudit 安全基线核查
+Documentation=file:/usr/share/doc/qeaudit/README.md
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=600
+Persistent=true
+Unit=qeaudit.service
+
+[Install]
+WantedBy=timers.target

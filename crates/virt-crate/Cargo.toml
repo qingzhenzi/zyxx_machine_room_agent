@@ -1,0 +1,25 @@
+[package]
+name = "virt-crate"
+description = "Unified Rust traits for Linux virtualization: KVM and libvirt backends"
+version.workspace = true
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[features]
+default = []
+kvm-backend = ["dep:virt-kvm"]
+libvirt-backend = ["dep:virt-libvirt"]
+
+[dependencies]
+virt-core = { workspace = true }
+virt-kvm = { workspace = true, optional = true }
+virt-libvirt = { workspace = true, optional = true }
+
+[[example]]
+name = "lifecycle"
+required-features = ["kvm-backend", "libvirt-backend"]
+
+[[example]]
+name = "lowlevel-kvm"
+required-features = ["kvm-backend"]
