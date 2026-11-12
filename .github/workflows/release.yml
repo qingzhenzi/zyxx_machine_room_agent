@@ -34,6 +34,14 @@ jobs:
           path: room_node
           token: ${{ secrets.ROOM_NODE_REPO_TOKEN || github.token }}
 
+      # Cargo 的 path 依赖是 ../../../room_node，即当前 workspace 的父目录；
+      # checkout 的 room_node 在 workspace 内部，这里补一个 sibling symlink。
+      - name: Link room_node as sibling
+        run: |
+          parent="$(dirname "$GITHUB_WORKSPACE")"
+          ln -sfn "$GITHUB_WORKSPACE/room_node" "$parent/room_node"
+          ls -ld "$parent/room_node"
+
       - name: Resolve version
         id: version
         run: |
