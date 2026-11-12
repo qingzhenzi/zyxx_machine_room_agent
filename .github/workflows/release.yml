@@ -71,6 +71,14 @@ jobs:
           name: qe-agent-build-log
           path: /tmp/qe-agent-build.log
 
+      - name: Annotate build failure
+        if: failure()
+        run: |
+          if [ -f /tmp/qe-agent-build.log ]; then
+            message="$(tail -n 25 /tmp/qe-agent-build.log | sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-30000)"
+            echo "::error title=qe-agent build failed::${message}"
+          fi
+
       - name: Build boot-display
         run: |
           cd apps/boot-display
