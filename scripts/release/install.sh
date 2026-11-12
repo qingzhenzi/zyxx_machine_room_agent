@@ -247,6 +247,24 @@ if [[ "$INSTALL_GUI" -eq 1 ]]; then
   fi
 fi
 
+# libvirt-guests：避免 host 关机时被无法 ACPI 响应的 VM 卡住（真机踩过）
+if [[ -f /etc/default/libvirt-guests ]] && command -v virsh >/dev/null 2>&1; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[dry-run] tune /etc/default/libvirt-guests: PARALLEL_SHUTDOWN=1 SHUTDOWN_TIMEOUT=30"
+  else
+    cp -a /etc/default/libvirt-guests /etc/default/libvirt-guests.qe-backup 2>/dev/null || true
+    for kv in "ON_SHUTDOWN=shutdown" "PARALLEL_SHUTDOWN=1" "SHUTDOWN_TIMEOUT=30"; do
+      k="${kv%%=*}"; v="${kv#*=}"
+      if grep -q "^${k}=" /etc/default/libvirt-guests; then
+        sed -i "s|^${k}=.*|${k}=${v}|" /etc/default/libvirt-guests
+      else
+        echo "${k}=${v}" >> /etc/default/libvirt-guests
+      fi
+    done
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+fi
+
 # 注册（可选）
 if [[ -n "$ENROLL_LINK" ]]; then
   run systemctl stop qe-agent 2>/dev/null || true
