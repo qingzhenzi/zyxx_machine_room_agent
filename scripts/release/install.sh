@@ -187,6 +187,9 @@ run install -d -m 0750 -g qe-agent "$DATA_DIR"
 run install -m 0755 "$BUNDLE_DIR/bin/qe-agent" "$BIN_DIR/qe-agent"
 if [[ "$INSTALL_DISPLAY" -eq 1 && -x "$BUNDLE_DIR/bin/boot-display" ]]; then
   run install -m 0755 "$BUNDLE_DIR/bin/boot-display" "$BIN_DIR/boot-display"
+  if [[ -x "$BUNDLE_DIR/share/qe-boot-display-session.sh" ]]; then
+    run install -m 0755 "$BUNDLE_DIR/share/qe-boot-display-session.sh" "$BIN_DIR/qe-boot-display-session"
+  fi
 fi
 
 # systemd + env
@@ -198,7 +201,12 @@ set_env ROOM_AGENT_FULL_INTERVAL_SECS "$FULL_INTERVAL"
 set_env ROOM_AGENT_LIVE_PUSH "$LIVE_PUSH"
 set_env ROOM_AGENT_LIVE_INTERVAL_MILLIS "$LIVE_INTERVAL_MS"
 if [[ "$INSTALL_DISPLAY" -eq 1 && -x "$BUNDLE_DIR/bin/boot-display" ]]; then
-  set_env QE_BOOT_DISPLAY_BIN "$BIN_DIR/boot-display"
+  # 只在检测到图形会话时启用，避免 root systemd 下 GTK 无 DISPLAY 崩溃循环。
+  if compgen -G '/run/user/*/wayland-*' >/dev/null 2>&1 || [[ -S /tmp/.X11-unix/X0 ]]; then
+    set_env QE_BOOT_DISPLAY_BIN "$BIN_DIR/qe-boot-display-session"
+  else
+    log "未检测到图形会话，跳过 boot-display 自启"
+  fi
 fi
 run systemctl daemon-reload
 

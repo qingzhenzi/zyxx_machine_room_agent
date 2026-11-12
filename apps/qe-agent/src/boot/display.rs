@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::boot::config::DisplayConfig;
@@ -16,6 +17,15 @@ use crate::boot::state::SharedState;
 
 /// 已拉起的子进程（供后续 supervise）。
 static DISPLAY_CHILD: Mutex<Option<Child>> = Mutex::new(None);
+/// 首次 spawn 是否已经完成（supervise 线程必须等它，否则会和初始 spawn 竞态拉起两份）。
+static DISPLAY_INIT_DONE: AtomicBool = AtomicBool::new(false);
+
+struct InitDoneGuard;
+impl Drop for InitDoneGuard {
+    fn drop(&mut self) {
+        DISPLAY_INIT_DONE.store(true, Ordering::Release);
+    }
+}
 
 fn binary_path(config: &DisplayConfig) -> Option<PathBuf> {
     if let Some(path) = &config.bin {
@@ -29,6 +39,7 @@ fn binary_path(config: &DisplayConfig) -> Option<PathBuf> {
 
 /// 尝试拉起 boot-display（spawn-and-forget；失败不中断 boot）。
 pub fn spawn_if_enabled(state: &SharedState, config: &DisplayConfig) {
+    let _init_done = InitDoneGuard;
     state.begin(crate::boot::Phase::Display);
 
     if !config.enabled {
@@ -83,6 +94,10 @@ pub fn supervise(config: DisplayConfig) {
         Some(path) => path,
         None => return,
     };
+    // 等首轮 spawn 完成，避免 supervise 与 spawn_if_enabled 同时拉起两份 boot-display。
+    while !DISPLAY_INIT_DONE.load(Ordering::Acquire) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let mut backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(60);
 

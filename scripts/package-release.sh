@@ -48,6 +48,7 @@ install -m 0644 "$CLIENT_RES/qe-agent.env.example" "$STAGE/share/qe-agent.env.ex
 install -m 0644 "${REPO_ROOT}/apps/agent-client/deploy/qe-agent-client.desktop" "$STAGE/share/qe-agent-client.desktop"
 install -m 0644 "${REPO_ROOT}/apps/agent-client/src-tauri/icons/128x128.png" "$STAGE/share/icons/qe-agent-client.png"
 install -m 0755 "${SCRIPT_DIR}/release/install.sh" "$STAGE/install.sh"
+install -m 0755 "${SCRIPT_DIR}/release/qe-boot-display-session.sh" "$STAGE/share/qe-boot-display-session.sh"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 cp "${REPO_ROOT}/docs/release-and-install.md" "$STAGE/README.md" 2>/dev/null || true
 
