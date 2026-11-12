@@ -24,6 +24,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      # qe-agent 的 path 依赖指向 ../../../room_node；必须把 room_node 作为
+      # workspace 的兄弟目录检出（与控制面仓库独立，不放进 room_agent）。
+      - name: Checkout room_node (path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: qingzhenzi/zyxx_machine_room_node_backend
+          ref: main
+          path: room_node
+          token: ${{ secrets.ROOM_NODE_REPO_TOKEN || github.token }}
+
       - name: Resolve version
         id: version
         run: |
