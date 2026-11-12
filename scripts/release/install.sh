@@ -32,6 +32,7 @@ FULL_INTERVAL="300"
 LIVE_PUSH="0"
 LIVE_INTERVAL_MS="500"
 ENROLL_LINK=""
+KIOSK=1
 
 usage() {
   cat <<USAGE
@@ -49,6 +50,7 @@ QEStudio Agent $BUNDLE_VERSION 安装器
   --no-live-push           只本地采样 + 快照批量提交（默认）
   --live-interval-ms MS    本地采样间隔，默认 500
   --enroll-link URL        安装后立即注册（一次性 enrollment link）
+  --no-kiosk               不做 kiosk 化：不自动登录、不锁屏禁用、不禁止切 TTY
   --start                  安装后启动 qe-agent
   --dry-run                只打印
   --uninstall              卸载二进制/unit/env/桌面入口（保留数据与证书）
@@ -76,6 +78,7 @@ while [[ $# -gt 0 ]]; do
     --no-live-push) LIVE_PUSH="0"; shift;;
     --live-interval-ms) LIVE_INTERVAL_MS="${2:-}"; shift 2;;
     --enroll-link) ENROLL_LINK="${2:-}"; shift 2;;
+    --no-kiosk) KIOSK=0; shift;;
     --start) START=1; shift;;
     --dry-run) DRY_RUN=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
@@ -137,6 +140,69 @@ set_env() {
 json_field() {
   local field="$1" file="$2"
   sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -1
+}
+
+# 教室机器 kiosk 化：自动登录、禁锁屏、禁止切 TTY；boot-display 才能从服务加载就占屏。
+configure_kiosk() {
+  [[ "$KIOSK" -eq 1 ]] || { log "已禁用 kiosk 化（--no-kiosk）"; return 0; }
+  [[ -n "$GUI_USER" ]] && id "$GUI_USER" >/dev/null 2>&1 || {
+    log "未指定有效 GUI 用户，跳过 kiosk 自动登录/锁屏配置"
+    return 0
+  }
+
+  # 1) 禁止 Ctrl+Alt+F2..F6 自动拉起 getty（保留 SDDM 的 tty1）
+  local logind_dir="/etc/systemd/logind.conf.d"
+  run install -d -m 0755 "$logind_dir"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[dry-run] write $logind_dir/90-qestudio-kiosk.conf (NAutoVTs=0)"
+  else
+    cat >"$logind_dir/90-qestudio-kiosk.conf" <<'EOF'
+[Login]
+NAutoVTs=0
+EOF
+    for n in 2 3 4 5 6; do
+      systemctl mask "getty@tty${n}.service" >/dev/null 2>&1 || true
+    done
+    systemctl restart systemd-logind 2>/dev/null || true
+  fi
+
+  # 2) SDDM 自动登录到 GUI 用户（没有 SDDM 就跳过）
+  if command -v sddm >/dev/null 2>&1; then
+    local session="plasma.desktop"
+    if [[ ! -f "/usr/share/wayland-sessions/${session}" && -f /usr/share/xsessions/plasma.desktop ]]; then
+      session="plasma"
+    fi
+    run install -d -m 0755 /etc/sddm.conf.d
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "[dry-run] write /etc/sddm.conf.d/90-qestudio-kiosk.conf (Autologin User=$GUI_USER)"
+    else
+      cat >/etc/sddm.conf.d/90-qestudio-kiosk.conf <<EOF
+[Autologin]
+User=${GUI_USER}
+Session=${session}
+Relogin=false
+EOF
+    fi
+    log "已配置 SDDM 自动登录：${GUI_USER} / ${session}"
+  fi
+
+  # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
+  local gui_home
+  gui_home="$(getent passwd "$GUI_USER" | cut -d: -f6)"
+  if [[ -n "$gui_home" && -d "$gui_home" ]]; then
+    run install -d -m 0700 "$gui_home/.config"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "[dry-run] write $gui_home/.config/kscreenlockerrc"
+    else
+      cat >"$gui_home/.config/kscreenlockerrc" <<'EOF'
+[Daemon]
+Autolock=false
+LockOnStart=false
+EOF
+      chown -R "$GUI_USER":"$(id -gn "$GUI_USER")" "$gui_home/.config/kscreenlockerrc"
+    fi
+    log "已关闭 ${GUI_USER} 的 Plasma 自动锁屏"
+  fi
 }
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
@@ -209,6 +275,10 @@ if [[ "$INSTALL_DISPLAY" -eq 1 && -x "$BUNDLE_DIR/bin/boot-display" ]]; then
     log "未检测到图形会话，跳过 boot-display 自启"
   fi
 fi
+
+# 教室机器 kiosk：自动登录、禁锁屏、禁切 TTY
+configure_kiosk
+
 run systemctl daemon-reload
 
 # GUI

@@ -27,7 +27,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![display_state])
         .setup(|app| {
             use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
+            // 调试窗口只允许显式开启，正式 boot 画面不能带 devtools。
+            if std::env::var("QE_BOOT_DISPLAY_DEVTOOLS").as_deref() == Ok("1")
+                && let Some(w) = app.get_webview_window("main")
+            {
                 w.open_devtools();
             }
             Ok(())
