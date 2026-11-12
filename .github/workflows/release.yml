@@ -24,16 +24,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout agent-client
-        uses: actions/checkout@v4
-        with:
-          repository: qingzhenzi/agent-client
-          # agent-client 本地分支是 master；如果 GitHub 默认分支是 main，改成 main。
-          ref: master
-          path: apps/agent-client
-          # 私有仓库必须配 AGENT_CLIENT_REPO_TOKEN；公开仓库可回退 github.token。
-          token: ${{ secrets.AGENT_CLIENT_REPO_TOKEN || github.token }}
-
       - name: Resolve version
         id: version
         run: |
@@ -78,6 +68,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec tauri build --no-bundle
 
+      # agent-client 是 room_agent 内的子目录（已纳入本仓库，不再单独 checkout）
       - name: Build agent-client
         run: |
           cd apps/agent-client

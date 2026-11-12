@@ -1,6 +1,7 @@
 # QEStudio 客户端发布与自动部署（方案）
 
-> 状态：设计稿（2026-11-12）。当前仓库**还没有统一 release 产物**；
+> 状态：设计稿（2026-11-12）。**agent-client 已纳入 room_agent 单仓**
+> (`apps/agent-client/`)，发布流水线不再跨仓库 checkout。
 > 本文定义三件套 `qe-agent + agent-client + boot-display` 的版本发布、打包、
 > 新机器安装（UI / CLI）与升级方式。
 
@@ -15,7 +16,7 @@
 | 安装方式 | `scripts/install-agent.sh` 从仓库路径安装，要求源码树 + 先构建 |
 | 新机器流程 | 拷仓库 → 装 Rust/Node/系统依赖 → build → sudo 脚本，不可交付 |
 | Tauri updater | endpoint 是占位 `https://updates.qestudio.example/latest.json`，没有签名/发布 |
-| CI | 只有 `room_node/.github/workflows/ci.yml`；room_agent / boot-display / agent-client 无发布流水线 |
+| CI | `room_node/.github/workflows/ci.yml`；新增 `room_agent/.github/workflows/release.yml`（tag 构建三件套并发布 Release） |
 
 结论：**目前没有“版本发布”机制，只有本地构建 + 源码安装脚本。**
 

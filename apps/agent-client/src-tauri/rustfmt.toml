@@ -1,0 +1,4 @@
+# Formatting for the Tauri crate. Run `pnpm rust:fmt` to apply.
+edition = "2021"
+max_width = 100
+newline_style = "Unix"

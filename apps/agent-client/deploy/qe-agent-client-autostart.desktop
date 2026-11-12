@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=QEStudio Agent
+Comment=登录桌面后启动 QEStudio Agent（托盘常驻）
+Exec=@EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

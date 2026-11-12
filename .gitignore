@@ -7,7 +7,6 @@
 /crates/qeaudit/
 /crates/qe-container/
 /crates/virt-crate/
-/apps/agent-client/
 
 # release bundles
 /dist/

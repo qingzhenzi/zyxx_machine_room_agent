@@ -1,0 +1,121 @@
+name: Client Release macOS
+
+# Gitea Actions: set the runner label to your macOS runner (for example
+# `macos-14`, `macos-latest`, or a self-hosted label such as `macos-arm64`).
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner label
+        required: true
+        default: macos-14
+      arch:
+        description: Rust target
+        required: true
+        default: aarch64-apple-darwin
+        type: choice
+        options:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+      self_signed:
+        description: Codesign the .app with a local self-signed certificate
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    env:
+      ARCH: ${{ inputs.arch }}
+      VITE_UPDATER_ENABLED: 'true'
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install Rust target
+        run: |
+          rustup target add "$ARCH"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify versions
+        run: pnpm version:check
+
+      - name: Import Apple signing certificate
+        if: ${{ env.APPLE_CERTIFICATE != '' }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 -D > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p actions "$RUNNER_TEMP/build.keychain"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$RUNNER_TEMP/build.keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions "$RUNNER_TEMP/build.keychain"
+          security list-keychains -d user -s "$RUNNER_TEMP/build.keychain" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build macOS app and updater artifact
+        run: |
+          pnpm tauri build \
+            --target "$ARCH" \
+            --bundles app,dmg \
+            --config '{"bundle":{"createUpdaterArtifacts":true}}'
+
+      - name: Self-sign the app
+        if: ${{ inputs.self_signed == 'true' }}
+        run: |
+          APP="$(find "src-tauri/target/$ARCH/release/bundle/macos" -maxdepth 2 -name '*.app' -print -quit)"
+          bash scripts/macos-selfsigned.sh "$APP"
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist/macos
+          find "src-tauri/target/$ARCH/release/bundle" -type f \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+            -exec cp {} dist/macos/ \;
+          ls -lh dist/macos
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qestudio-macos-${{ inputs.arch }}
+          path: dist/macos/*
+          retention-days: 14
+
+      - name: Print manifest command
+        run: |
+          echo "After uploading the .app.tar.gz and .sig to your update host:"
+          echo "pnpm manifest:update \\"
+          echo "  --version $(node -p "require('./package.json').version") \\"
+          echo "  --url https://updates.example.com/QEStudio.app.tar.gz \\"
+          echo "  --signature-file dist/macos/QEStudio.app.tar.gz.sig \\"
+          echo "  --platform darwin-${{ inputs.arch == 'aarch64-apple-darwin' && 'aarch64' || 'x86_64' }} \\"
+          echo "  --output latest.json"
