@@ -26,6 +26,7 @@ const rooms = ref<RoomRow[]>([])
 const machines = ref<MachineRow[]>([])
 const selectedRoom = ref(localStorage.getItem('qe.teacher.room') ?? '')
 const selectedMachine = ref('')
+const remember = ref(localStorage.getItem('qe.teacher.remember') !== 'false')
 const vms = ref<VmRow[]>([])
 const containers = ref<ContainerRow[]>([])
 const detailBusy = ref(false)
@@ -57,6 +58,14 @@ async function login() {
     token.value = reply.access_token
     localStorage.setItem('qe.teacher.token', token.value)
     localStorage.setItem('qe.teacher.control', controlUrl.value)
+    localStorage.setItem('qe.teacher.remember', remember.value ? 'true' : 'false')
+    if (remember.value) {
+      localStorage.setItem('qe.teacher.username', username.value)
+      localStorage.setItem('qe.teacher.password', password.value)
+    } else {
+      localStorage.removeItem('qe.teacher.username')
+      localStorage.removeItem('qe.teacher.password')
+    }
     await refresh()
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught)
@@ -145,7 +154,17 @@ function stateLabel(state?: string) { return state ?? '未知' }
 function machineOnline(machine: MachineRow) { return machine.online === 'online' || machine.session_online === 'online' }
 function formatMemory(bytes?: number) { return bytes ? `${Math.round(bytes / 1024 / 1024 / 1024)} GB` : '—' }
 
-onMounted(() => { if (loggedIn.value) void refresh() })
+onMounted(() => {
+  const savedUser = localStorage.getItem('qe.teacher.username')
+  const savedPass = localStorage.getItem('qe.teacher.password')
+  if (remember.value && savedUser && savedPass) {
+    username.value = savedUser
+    password.value = savedPass
+    void login()
+    return
+  }
+  if (loggedIn.value) void refresh()
+})
 </script>
 
 <template>
@@ -167,7 +186,10 @@ onMounted(() => { if (loggedIn.value) void refresh() })
           <label class="text-xs text-slate-400">控制面地址<input v-model="controlUrl" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
           <label class="text-xs text-slate-400">用户名<input v-model="username" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
           <label class="text-xs text-slate-400">密码<input v-model="password" type="password" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
-          <button class="mt-5 h-9 rounded bg-cyan-500 px-4 text-sm font-medium text-slate-950 disabled:opacity-50" :disabled="busy" @click="login">登录</button>
+          <div class="flex items-end gap-2">
+            <label class="flex h-9 items-center gap-2 text-xs text-slate-400"><input v-model="remember" type="checkbox" class="accent-cyan-500" />自动登录</label>
+            <button class="h-9 rounded bg-cyan-500 px-4 text-sm font-medium text-slate-950 disabled:opacity-50" :disabled="busy" @click="login">登录</button>
+          </div>
         </div>
       </section>
 
