@@ -75,6 +75,9 @@ pub fn run(ctx: ServeCtx) -> Result<()> {
     let logs = logging::LogBuffer::default();
     logging::init(logs.clone());
 
+    // 物理键盘调试解锁（Wayland 下 Tauri 全局快捷键不一定收得到）。
+    crate::debug_hotkey::spawn();
+
     let effective_slot = opts.device_slot.clone().or_else(|| slot.clone());
 
     let room_cli = || qe_agent_telemetry::cli::Cli {

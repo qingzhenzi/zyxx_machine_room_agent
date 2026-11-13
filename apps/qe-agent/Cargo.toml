@@ -20,6 +20,7 @@ platform-health = { path = "../../crates/platform-health" }
 platform-diagnose = { path = "../../crates/platform-diagnose" }
 qe-nftables = { path = "../../crates/qe-nftables" }
 which = "7"
+evdev = "0.13"
 qe-container = { path = "../../crates/qe-container" }
 virt-crate = { path = "../../crates/virt-crate", features = ["libvirt-backend"] }
 virt-core = { path = "../../crates/virt-crate/crates/virt-core" }

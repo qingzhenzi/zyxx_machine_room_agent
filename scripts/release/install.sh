@@ -326,6 +326,13 @@ function isBootDisplay(client) {
          resource === "qe-boot-display" ||
          resource === "boot-display";
 }
+function isDebugDialog(client) {
+  if (!client) return false;
+  var caption = (client.caption || "").toString();
+  var resource = (client.resourceClass || "").toString().toLowerCase();
+  return caption.indexOf("QEStudio 调试解锁") >= 0 ||
+         resource.indexOf("kdialog") >= 0 || resource.indexOf("zenity") >= 0;
+}
 function allWindows() {
   return workspace.windowList ? workspace.windowList() : (workspace.clientList ? workspace.clientList() : []);
 }
@@ -352,6 +359,11 @@ function minimizeOthers() {
   }
 }
 function onAdded(client) {
+  if (isDebugDialog(client)) {
+    client.minimized = false;
+    client.keepAbove = true;
+    return;
+  }
   if (bootWindow && !bootAlive()) bootWindow = null;
   if (isBootDisplay(client)) {
     bootWindow = client;
@@ -363,11 +375,11 @@ function onAdded(client) {
   if (bootWindow) client.minimized = true;
 }
 function onActivated(client) {
+  if (isDebugDialog(client)) return;
   if (!bootWindow) return;
   if (client === bootWindow) { enforce(client); return; }
-  // 不允许切换到其他应用；把焦点还给 boot-display
+  // 不允许切换到其他应用；只最小化，不去 set activeWindow（可能为 null 报错）
   client.minimized = true;
-  workspace.activeWindow = bootWindow;
   enforce(bootWindow);
 }
 workspace.windowAdded.connect(onAdded);

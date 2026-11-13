@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 import BootScene from './components/BootScene.vue'
 import EnrollScene from './components/EnrollScene.vue'
@@ -12,6 +13,8 @@ import { pollDisplayState, type DisplayState } from './lib/ipc'
 const state = ref<DisplayState | null>(null)
 const connected = ref(false)
 const unlockOpen = ref(false)
+const hotspotClicks = ref(0)
+let hotspotTimer: number | undefined
 const password = ref('')
 const unlockError = ref('')
 const unlocking = ref(false)
@@ -29,6 +32,23 @@ function onKeydown(event: KeyboardEvent) {
   }
   if (event.key === 'Delete' || (event.altKey && event.key === 'F4')) {
     event.preventDefault()
+  }
+}
+
+function openUnlock() {
+  unlockOpen.value = true
+  unlockError.value = ''
+  void nextTick(() => passwordInput.value?.focus())
+}
+
+/** Wayland 全局快捷键不可靠时的鼠标兜底：左上角连点 5 次。 */
+function onHotspotClick() {
+  hotspotClicks.value += 1
+  if (hotspotTimer !== undefined) window.clearTimeout(hotspotTimer)
+  hotspotTimer = window.setTimeout(() => { hotspotClicks.value = 0 }, 1200)
+  if (hotspotClicks.value >= 5) {
+    hotspotClicks.value = 0
+    openUnlock()
   }
 }
 
@@ -54,13 +74,20 @@ async function tick() {
   }
 }
 
+let unlistenDebug: (() => void) | undefined
 onMounted(() => {
   window.addEventListener('keydown', onKeydown, true)
+  void listen('qe-debug-unlock', () => {
+    unlockOpen.value = true
+    unlockError.value = ''
+    void nextTick(() => passwordInput.value?.focus())
+  }).then((dispose) => { unlistenDebug = dispose })
   void tick()
   timer = window.setInterval(() => void tick(), 1000)
 })
 
 onUnmounted(() => {
+  unlistenDebug?.()
   window.removeEventListener('keydown', onKeydown, true)
   if (timer !== undefined) window.clearInterval(timer)
 })
@@ -95,6 +122,13 @@ onUnmounted(() => {
         :connected="connected"
       />
     </template>
+
+    <button
+      type="button"
+      aria-label="调试解锁入口"
+      class="fixed left-0 top-0 z-[9998] h-10 w-10 cursor-default opacity-0"
+      @click="onHotspotClick"
+    />
 
     <div
       v-if="unlockOpen"
