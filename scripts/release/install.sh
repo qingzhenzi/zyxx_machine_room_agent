@@ -34,6 +34,7 @@ LIVE_INTERVAL_MS="500"
 ENROLL_LINK=""
 KIOSK=1
 GRUB_PASSWORD=""
+BOOT_DISPLAY_DEBUG_PASSWORD="QEBootDebug2026!"
 
 usage() {
   cat <<USAGE
@@ -288,6 +289,93 @@ EOF
     log "未启用 GRUB 密码（如需锁定 Esc/Shift，请显式 --grub-password，且先在测试机验证）"
   fi
 
+  # 2.8) KDE Wayland：用 KWin 脚本强制 boot-display 置顶/全屏/不进任务栏，
+  # 并禁用常用 KWin 快捷键（Alt+F4 / Alt+F3 / Alt+Tab 等）。
+  if command -v kwin_wayland >/dev/null 2>&1 || command -v kwin_x11 >/dev/null 2>&1; then
+    local gui_home_kde
+    gui_home_kde="$(getent passwd "$GUI_USER" | cut -d: -f6)"
+    if [[ -n "$gui_home_kde" && -d "$gui_home_kde" ]]; then
+      local script_dir="$gui_home_kde/.local/share/kwin/scripts/qe-kiosk"
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "[dry-run] install KWin script qe-kiosk for $GUI_USER"
+      else
+        run install -d -m 0755 "$script_dir/contents/code"
+        cat >"$script_dir/metadata.json" <<'KJSON'
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Id": "qe-kiosk",
+    "Name": "QEStudio Kiosk",
+    "Description": "Keep the QEStudio boot display above other windows",
+    "Version": "1.0",
+    "License": "MIT",
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}
+KJSON
+        cat >"$script_dir/contents/code/main.js" <<'KJS'
+function isBootDisplay(client) {
+  if (!client) return false;
+  var caption = client.caption || "";
+  var resource = (client.resourceClass || "").toString();
+  return caption.indexOf("QEStudio Boot Display") >= 0 ||
+         resource === "org.qestudio.boot-display" ||
+         resource === "qe-boot-display" ||
+         resource === "boot-display";
+}
+function enforce(client) {
+  if (!isBootDisplay(client)) return;
+  client.keepAbove = true;
+  client.fullScreen = true;
+  client.skipTaskbar = true;
+  client.noBorder = true;
+}
+workspace.windowAdded.connect(enforce);
+workspace.windowActivated.connect(enforce);
+KJS
+        chown -R "$GUI_USER":"$(id -gn "$GUI_USER")" "$gui_home_kde/.local/share/kwin"
+        # 启用脚本：直接写 kwinrc，避免依赖 DBus/当前会话
+        local kwinrc="$gui_home_kde/.config/kwinrc"
+        run install -d -m 0700 "$gui_home_kde/.config"
+        if grep -q '^\[Plugins\]' "$kwinrc" 2>/dev/null; then
+          if grep -q '^qe-kioskEnabled=' "$kwinrc" 2>/dev/null; then
+            sed -i 's/^qe-kioskEnabled=.*/qe-kioskEnabled=true/' "$kwinrc"
+          else
+            sed -i '/^\[Plugins\]/a qe-kioskEnabled=true' "$kwinrc"
+          fi
+        else
+          printf '
+[Plugins]
+qe-kioskEnabled=true
+' >>"$kwinrc"
+        fi
+        chown "$GUI_USER":"$(id -gn "$GUI_USER")" "$kwinrc"
+
+        # 禁用会切走/关掉展示层的 KDE 全局快捷键（下次登录生效）
+        if command -v kwriteconfig6 >/dev/null 2>&1; then
+          disable_shortcut() {
+            local group="$1" key="$2"
+            run su -s /bin/sh "$GUI_USER" -c "kwriteconfig6 --file kglobalshortcutsrc --group '$group' --key '$key' 'none,none,none'" 2>/dev/null || true
+          }
+          for key in "Window Close" "Window Operations Menu" "Window Minimize" "Window Maximize" "Walk Through Windows" "Walk Through Windows (Reverse)" "Walk Through Windows of Current Application" "Show Desktop" "Activate Window Demanding Attention"; do
+            disable_shortcut kwin "$key"
+          done
+          for key in "Log Out" "Lock Session" "Halt Without Confirmation" "Reboot" "Shut Down"; do
+            disable_shortcut ksmserver "$key"
+          done
+          for key in "activate application launcher" "manage activities" "clipboard_action" "cycle-panels"; do
+            disable_shortcut plasmashell "$key"
+          done
+          for n in 1 2 3 4 5 6 7 8 9; do disable_shortcut plasmashell "activate task manager entry ${n}"; done
+          log "已禁用 KDE 关闭/切换窗口/注销/启动器快捷键（下次登录生效）"
+        fi
+        log "已安装 KWin qe-kiosk 脚本：boot-display 强制置顶/全屏"
+      fi
+    fi
+  fi
+
   # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
   local gui_home
   gui_home="$(getent passwd "$GUI_USER" | cut -d: -f6)"
@@ -373,6 +461,7 @@ if [[ "$INSTALL_DISPLAY" -eq 1 && -x "$BUNDLE_DIR/bin/boot-display" ]]; then
   if compgen -G '/run/user/*/wayland-*' >/dev/null 2>&1 || [[ -S /tmp/.X11-unix/X0 ]]; then
     set_env QE_BOOT_DISPLAY_BIN "$BIN_DIR/qe-boot-display-session"
     set_env QE_BOOT_DISPLAY_EXIT_AFTER_BOOT 1
+    set_env QE_BOOT_DISPLAY_DEBUG_PASSWORD "${BOOT_DISPLAY_DEBUG_PASSWORD:-QEBootDebug2026!}"
   else
     log "未检测到图形会话，跳过 boot-display 自启"
   fi

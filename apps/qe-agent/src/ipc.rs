@@ -314,6 +314,11 @@ pub(crate) async fn route(
                 Err(error) => (400, error_json("bad_request", format!("解析失败: {error}"))),
             }
         }
+        ("POST", "/v1/display/unlock") => {
+            // 调试解锁：boot-display 已校验密码，这里停止 supervise 并结束展示层。
+            crate::boot::display::shutdown();
+            (200, json!({ "ok": true }))
+        }
         ("POST", "/v1/power") => {
             match serde_json::from_slice::<PowerRequest>(body) {
                 Ok(request) => match qe_agent_node::agent_control::execute_local(&request.action, request.graceful).await {
