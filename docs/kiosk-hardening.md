@@ -31,7 +31,19 @@ GRUB_DISABLE_RECOVERY=true
 
 - 备份 `/etc/default/grub` → `.qe-backup`
 - `update-grub`（Debian）或 `grub-mkconfig`（Arch）
-- 可选：去掉 `/etc/grub.d/30_uefi-firmware` 的 UEFI 菜单项
+- 去掉 `/etc/grub.d/30_uefi-firmware` 的 UEFI 菜单项
+- 设置 GRUB 超级用户密码（`/etc/grub.d/40_custom`，PBKDF2）：
+  - 默认随机生成，保存在 `/root/qe-grub-password` (0600)
+  - 也可 `--grub-password PASS`
+  - 按 Esc/Shift 只能到密码提示，不能编辑启动项/进 recovery
+
+TTY：
+
+- `/etc/systemd/logind.conf.d/90-qestudio-kiosk.conf`：`NAutoVTs=0`
+- mask `getty@tty2..tty6`
+- `/etc/X11/xorg.conf.d/99-qestudio-no-vtswitch.conf`：Xorg `DontVTSwitch=true`
+- Wayland/Plasma 下的 Ctrl+Alt+F 由合成器/内核处理，没有统一配置可 100% 禁用；
+  当前用“无 getty/无登录 VT + 锁屏关闭 + GRUB 密码”降低风险。
 
 ## 注意：隐藏不等于安全
 

@@ -33,6 +33,7 @@ LIVE_PUSH="0"
 LIVE_INTERVAL_MS="500"
 ENROLL_LINK=""
 KIOSK=1
+GRUB_PASSWORD=""
 
 usage() {
   cat <<USAGE
@@ -51,6 +52,7 @@ QEStudio Agent $BUNDLE_VERSION 安装器
   --live-interval-ms MS    本地采样间隔，默认 500
   --enroll-link URL        安装后立即注册（一次性 enrollment link）
   --no-kiosk               不做 kiosk 化：不自动登录、不锁屏禁用、不禁止切 TTY
+  --grub-password PASS     设置 GRUB 超级用户密码（默认随机生成并保存到 /root/qe-grub-password）
   --start                  安装后启动 qe-agent
   --dry-run                只打印
   --uninstall              卸载二进制/unit/env/桌面入口（保留数据与证书）
@@ -79,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --live-interval-ms) LIVE_INTERVAL_MS="${2:-}"; shift 2;;
     --enroll-link) ENROLL_LINK="${2:-}"; shift 2;;
     --no-kiosk) KIOSK=0; shift;;
+    --grub-password) GRUB_PASSWORD="${2:-}"; shift 2;;
     --start) START=1; shift;;
     --dry-run) DRY_RUN=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
@@ -142,6 +145,48 @@ json_field() {
   sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -1
 }
 
+# 给 GRUB 设置超级用户密码：隐藏菜单后，按 Esc/Shift 也只能到密码提示，
+# 不能编辑启动项/进 recovery。密码哈希由 grub-mkpasswd-pbkdf2 生成。
+configure_grub_password() {
+  [[ -f /etc/default/grub ]] || return 0
+  command -v grub-mkpasswd-pbkdf2 >/dev/null 2>&1 || {
+    log "警告：缺少 grub-mkpasswd-pbkdf2，跳过 GRUB 密码"
+    return 0
+  }
+  local pass="$GRUB_PASSWORD"
+  if [[ -z "$pass" ]]; then
+    pass="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 20)"
+    [[ -n "$pass" ]] || pass="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)"
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[dry-run] set GRUB superuser password (hash via grub-mkpasswd-pbkdf2)"
+    return 0
+  fi
+  local hash
+  hash="$(printf '%s\n%s\n' "$pass" "$pass" | grub-mkpasswd-pbkdf2 2>/dev/null | grep -o 'grub\.pbkdf2\.[^ ]*' | head -1)"
+  if [[ -z "$hash" ]]; then
+    log "警告：生成 GRUB 密码哈希失败，跳过"
+    return 0
+  fi
+  local custom="/etc/grub.d/40_custom"
+  cp -a "$custom" "${custom}.qe-backup" 2>/dev/null || true
+  # 去掉本项目旧块，避免重装重复
+  if grep -q "BEGIN QESTUDIO GRUB PASSWORD" "$custom" 2>/dev/null; then
+    sed -i '/# BEGIN QESTUDIO GRUB PASSWORD/,/# END QESTUDIO GRUB PASSWORD/d' "$custom"
+  fi
+  {
+    echo ""
+    echo "# BEGIN QESTUDIO GRUB PASSWORD"
+    echo 'set superusers="qe-root"'
+    echo "password_pbkdf2 qe-root ${hash}"
+    echo "# END QESTUDIO GRUB PASSWORD"
+  } >>"$custom"
+  chmod 0755 "$custom"
+  printf '%s\n' "$pass" >/root/qe-grub-password
+  chmod 0600 /root/qe-grub-password
+  log "已设置 GRUB 超级用户密码；密码保存在 /root/qe-grub-password (0600)"
+}
+
 # 教室机器 kiosk 化：自动登录、禁锁屏、禁止切 TTY；boot-display 才能从服务加载就占屏。
 configure_kiosk() {
   [[ "$KIOSK" -eq 1 ]] || { log "已禁用 kiosk 化（--no-kiosk）"; return 0; }
@@ -163,6 +208,13 @@ EOF
     for n in 2 3 4 5 6; do
       systemctl mask "getty@tty${n}.service" >/dev/null 2>&1 || true
     done
+    # Xorg 侧（SDDM 的 X server）禁止 VT 切换。
+    install -d -m 0755 /etc/X11/xorg.conf.d
+    cat >/etc/X11/xorg.conf.d/99-qestudio-no-vtswitch.conf <<'XEOF'
+Section "ServerFlags"
+    Option "DontVTSwitch" "true"
+EndSection
+XEOF
     systemctl restart systemd-logind 2>/dev/null || true
   fi
 
@@ -212,6 +264,7 @@ EOF
       log "已隐藏 GRUB 菜单（备份 /etc/default/grub.qe-backup）"
     fi
   fi
+  configure_grub_password
 
   # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
   local gui_home
