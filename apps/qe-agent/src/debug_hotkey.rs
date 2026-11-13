@@ -22,17 +22,35 @@ pub fn spawn() {
     }
     thread::Builder::new()
         .name("qe-debug-hotkey".to_owned())
-        .spawn(|| {
-            let devices = keyboard_devices();
-            if devices.is_empty() {
-                eprintln!("qe-debug-hotkey: 没有找到可读的键盘输入设备");
-                return;
-            }
-            for path in devices {
-                thread::spawn(move || watch_device(path));
-            }
-        })
+        .spawn(scan_loop)
         .ok();
+}
+
+/// 周期性扫描 /dev/input：新插入的键盘会被自动纳入，拔掉后 watcher 退出。
+fn scan_loop() {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    let known: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
+    loop {
+        for path in keyboard_devices() {
+            let mut guard = match known.lock() {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+            if !guard.insert(path.clone()) {
+                continue;
+            }
+            eprintln!("qe-debug-hotkey: 监听键盘 {}", path.display());
+            drop(guard);
+            let known = known.clone();
+            thread::Builder::new()
+                .name("qe-debug-key".to_owned())
+                .spawn(move || watch_device(path, known))
+                .ok();
+        }
+        thread::sleep(Duration::from_secs(2));
+    }
 }
 
 fn keyboard_devices() -> Vec<PathBuf> {
@@ -58,7 +76,7 @@ fn keyboard_devices() -> Vec<PathBuf> {
         .collect()
 }
 
-fn watch_device(path: PathBuf) {
+fn watch_device(path: PathBuf, known: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<PathBuf>>>) {
     let Ok(mut device) = Device::open(&path) else {
         return;
     };
@@ -71,6 +89,9 @@ fn watch_device(path: PathBuf) {
             Ok(events) => events,
             Err(error) => {
                 eprintln!("qe-debug-hotkey: 读取 {} 失败: {error}", path.display());
+                if let Ok(mut guard) = known.lock() {
+                    guard.remove(&path);
+                }
                 return;
             }
         };
