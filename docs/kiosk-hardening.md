@@ -33,10 +33,12 @@ GRUB_DISABLE_RECOVERY=true
 - `update-grub`（Debian）或 `grub-mkconfig`（Arch）
 - 去掉 `/etc/grub.d/30_uefi-firmware` 的 UEFI 菜单项
 - GRUB 密码（默认**不启用**）：`--grub-password PASS` 才写入
-  - **警告**：`set superusers` 会让所有启动项默认需要认证，配置不当会把机器卡在密码提示；
-    安装器目前只把它作为显式选项，默认不启用
-  - 正确做法是给启动项加 `--unrestricted`，须先在测试 VM 验证后再用于生产
-  - 真机曾因此卡住启动，已通过 SystemRescue 恢复；恢复后安装器改为 opt-in
+  - 写入前会 patch `/etc/grub.d/10_linux`、`20_linux_xen`，给菜单项加 `--unrestricted`：
+    正常启动不需要密码，Esc/Shift 调菜单/编辑才需要
+  - 备份放 `/root/qe-grub-backups`，绝不留在 `/etc/grub.d`（否则 grub-mkconfig 会执行备份，
+    造成重复菜单/密码块，真机踩过）
+  - 真机已验证：正常重启自动进 Debian；Esc/Shift 进密码提示
+  - 密码保存在 `/root/qe-grub-password` (0600)
 
 TTY：
 

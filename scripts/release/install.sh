@@ -168,8 +168,24 @@ configure_grub_password() {
     log "警告：生成 GRUB 密码哈希失败，跳过"
     return 0
   fi
+  # 备份不能放在 /etc/grub.d 并被 chmod +x：grub-mkconfig 会执行所有可执行脚本，
+  # 之前 40_custom.qe-backup 被当成脚本执行，导致密码块重复/清理失败。
+  install -d -m 0700 /root/qe-grub-backups
+  # 确保 GRUB 自动启动项是 --unrestricted：superusers 只保护编辑/命令行，
+  # 正常启动不需要密码（否则会卡在 GRUB 密码提示）。
+  for f in /etc/grub.d/10_linux /etc/grub.d/20_linux_xen; do
+    [[ -f "$f" ]] || continue
+    cp -a "$f" "/root/qe-grub-backups/$(basename "$f").pre-qe" 2>/dev/null || true
+    sed -i "s/menuentry '/menuentry --unrestricted '/g; s/submenu '/submenu --unrestricted '/g" "$f"
+  done
   local custom="/etc/grub.d/40_custom"
-  cp -a "$custom" "${custom}.qe-backup" 2>/dev/null || true
+  cp -a "$custom" /root/qe-grub-backups/40_custom.pre-qe 2>/dev/null || true
+  # 清掉旧版本误留在 grub.d 内的可执行备份
+  for old in /etc/grub.d/*.qe-backup*; do
+    [[ -e "$old" ]] || continue
+    chmod -x "$old" 2>/dev/null || true
+    mv "$old" /root/qe-grub-backups/ 2>/dev/null || true
+  done
   # 去掉本项目旧块，避免重装重复
   if grep -q "BEGIN QESTUDIO GRUB PASSWORD" "$custom" 2>/dev/null; then
     sed -i '/# BEGIN QESTUDIO GRUB PASSWORD/,/# END QESTUDIO GRUB PASSWORD/d' "$custom"
