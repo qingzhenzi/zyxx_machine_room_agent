@@ -6,23 +6,6 @@
     "main"
   ],
   "permissions": [
-    "core:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-start-resize-dragging",
-    "core:window:allow-minimize",
-    "core:window:allow-maximize",
-    "core:window:allow-unmaximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-is-maximized",
-    "core:app:allow-version",
-    "opener:default",
-    "notification:default",
-    "updater:default",
-    "process:default",
-    "autostart:default",
-    "dialog:default",
-    "log:default",
-    "deep-link:default"
+    "core:default"
   ]
 }
