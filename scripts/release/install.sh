@@ -316,6 +316,7 @@ EOF
 }
 KJSON
         cat >"$script_dir/contents/code/main.js" <<'KJS'
+var bootWindow = null;
 function isBootDisplay(client) {
   if (!client) return false;
   var caption = client.caption || "";
@@ -325,18 +326,60 @@ function isBootDisplay(client) {
          resource === "qe-boot-display" ||
          resource === "boot-display";
 }
+function allWindows() {
+  return workspace.windowList ? workspace.windowList() : (workspace.clientList ? workspace.clientList() : []);
+}
 function enforce(client) {
-  if (!isBootDisplay(client)) return;
+  if (!client) return;
   client.keepAbove = true;
   client.fullScreen = true;
   client.skipTaskbar = true;
   client.noBorder = true;
+  client.minimized = false;
 }
-workspace.windowAdded.connect(enforce);
-workspace.windowActivated.connect(enforce);
-// KWin 6: windowList()；首次登录时 boot-display 可能已存在，补一次全量 enforce
-var windows = workspace.windowList ? workspace.windowList() : (workspace.clientList ? workspace.clientList() : []);
-for (var i = 0; i < windows.length; i++) enforce(windows[i]);
+function bootAlive() {
+  if (!bootWindow) return false;
+  return allWindows().indexOf(bootWindow) >= 0;
+}
+function minimizeOthers() {
+  if (!bootAlive()) { bootWindow = null; return; }
+  var windows = allWindows();
+  for (var i = 0; i < windows.length; i++) {
+    var w = windows[i];
+    if (w !== bootWindow && w !== null) {
+      w.minimized = true;
+    }
+  }
+}
+function onAdded(client) {
+  if (bootWindow && !bootAlive()) bootWindow = null;
+  if (isBootDisplay(client)) {
+    bootWindow = client;
+    enforce(client);
+    minimizeOthers();
+    return;
+  }
+  // 展示层存在期间，任何新应用/通知窗口都立即最小化，不能盖到上面
+  if (bootWindow) client.minimized = true;
+}
+function onActivated(client) {
+  if (!bootWindow) return;
+  if (client === bootWindow) { enforce(client); return; }
+  // 不允许切换到其他应用；把焦点还给 boot-display
+  client.minimized = true;
+  workspace.activeWindow = bootWindow;
+  enforce(bootWindow);
+}
+workspace.windowAdded.connect(onAdded);
+workspace.windowActivated.connect(onActivated);
+var windows = allWindows();
+for (var i = 0; i < windows.length; i++) {
+  if (isBootDisplay(windows[i])) {
+    bootWindow = windows[i];
+    enforce(bootWindow);
+    minimizeOthers();
+  }
+}
 KJS
         chown -R "$GUI_USER":"$(id -gn "$GUI_USER")" "$gui_home_kde/.local/share/kwin"
         # 启用脚本：直接写 kwinrc，避免依赖 DBus/当前会话

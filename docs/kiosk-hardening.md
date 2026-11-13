@@ -82,3 +82,11 @@ GRUB 菜单隐藏只是体验/防误触，不是安全边界。懂的人仍可�
 - Plasma 面板默认会盖在 boot-display 上；安装器设置 `plasmashellrc: panelVisibility=1`
   并写 `plasmanotifyrc DoNotDisturb=true`，避免任务栏/Fcitx 通知等桌面 UI 露出。
 - 真机重启验证：boot-display 首次启动即全屏，截图只有 QESTUDIO 画面，无面板/通知。
+
+### 新窗口/其他应用盖住 boot-display 的处理
+
+- KWin 6 的 `workspace.windowClosed` 信号不可用，脚本连接它会导致整个 qe-kiosk 脚本加载失败；
+  已去掉该连接，改用 `windowList()` 判断 boot window 是否仍存活。
+- boot-display 存在期间：新窗口立即 `minimized=true`，激活其他窗口会被强制拉回
+  boot-display；同时 Plasma 面板自动隐藏 + 勿扰。
+- 真机验证：在 boot-display 运行时启动 Discover，截图仍只有 QESTUDIO 画面。
