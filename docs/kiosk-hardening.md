@@ -74,3 +74,11 @@ GRUB 菜单隐藏只是体验/防误触，不是安全边界。懂的人仍可�
   （安装默认 `QEBootDebug2026!`，可改）后通知 agent 停止 supervise 并退出展示层。
 - 真机验证：KWin 脚本日志 `QE-KIOSK enforced`，截图确认全屏置顶；
   agent IPC `/v1/display/unlock` 返回 ok 并结束 boot-display。
+
+## 首次启动也全屏置顶
+
+- KWin 脚本除了 `windowAdded/windowActivated`，加载时还会用 `workspace.windowList()`
+  遍历已存在窗口补一次 enforce，解决“boot-display 已存在但脚本后加载”首次漏掉的问题。
+- Plasma 面板默认会盖在 boot-display 上；安装器设置 `plasmashellrc: panelVisibility=1`
+  并写 `plasmanotifyrc DoNotDisturb=true`，避免任务栏/Fcitx 通知等桌面 UI 露出。
+- 真机重启验证：boot-display 首次启动即全屏，截图只有 QESTUDIO 画面，无面板/通知。

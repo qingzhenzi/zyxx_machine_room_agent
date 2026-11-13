@@ -379,6 +379,32 @@ qe-kioskEnabled=true
     fi
   fi
 
+  # 2.9) Plasma 面板自动隐藏 + 勿扰：否则面板/通知会盖在 boot-display 上
+  local gui_home_panel
+  gui_home_panel="$(getent passwd "$GUI_USER" | cut -d: -f6)"
+  if [[ -n "$gui_home_panel" && -d "$gui_home_panel" ]]; then
+    local plasmashellrc="$gui_home_panel/.config/plasmashellrc"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "[dry-run] set Plasma panelVisibility=1 and DoNotDisturb=1 for $GUI_USER"
+    else
+      run install -d -m 0700 "$gui_home_panel/.config"
+      if [[ -f "$plasmashellrc" ]] && grep -q '^panelVisibility=' "$plasmashellrc"; then
+        sed -i 's/^panelVisibility=.*/panelVisibility=1/' "$plasmashellrc"
+      else
+        printf '\npanelVisibility=1\n' >>"$plasmashellrc"
+      fi
+      chown "$GUI_USER":"$(id -gn "$GUI_USER")" "$plasmashellrc"
+      local notifyrc="$gui_home_panel/.config/plasmanotifyrc"
+      if [[ -f "$notifyrc" ]] && grep -q '^DoNotDisturb=' "$notifyrc"; then
+        sed -i 's/^DoNotDisturb=.*/DoNotDisturb=true/' "$notifyrc"
+      else
+        printf '\n[Notifications]\nDoNotDisturb=true\n' >>"$notifyrc"
+      fi
+      chown "$GUI_USER":"$(id -gn "$GUI_USER")" "$notifyrc"
+    fi
+    log "已配置 Plasma 面板自动隐藏/勿扰（下次登录生效）"
+  fi
+
   # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
   local gui_home
   gui_home="$(getent passwd "$GUI_USER" | cut -d: -f6)"
