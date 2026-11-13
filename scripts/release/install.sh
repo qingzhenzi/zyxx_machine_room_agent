@@ -186,6 +186,33 @@ EOF
     log "已配置 SDDM 自动登录：${GUI_USER} / ${session}"
   fi
 
+  # 2.5) 隐藏 GRUB 菜单：单系统教室机不需要 5 秒启动菜单
+  if [[ -f /etc/default/grub ]]; then
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "[dry-run] harden /etc/default/grub (TIMEOUT=0, TIMEOUT_STYLE=hidden, DISABLE_OS_PROBER, DISABLE_RECOVERY)"
+    else
+      cp -a /etc/default/grub /etc/default/grub.qe-backup 2>/dev/null || true
+      for kv in "GRUB_TIMEOUT=0" "GRUB_TIMEOUT_STYLE=hidden" "GRUB_RECORDFAIL_TIMEOUT=0" "GRUB_DISABLE_OS_PROBER=true" "GRUB_DISABLE_RECOVERY=true"; do
+        k="${kv%%=*}"; v="${kv#*=}"
+        if grep -q "^${k}=" /etc/default/grub; then
+          sed -i "s|^${k}=.*|${k}=${v}|" /etc/default/grub
+        else
+          echo "${k}=${v}" >> /etc/default/grub
+        fi
+      done
+      # 去掉 UEFI Firmware Settings 菜单项（BIOS 仍可按 F10 进入）。
+      if [[ -x /etc/grub.d/30_uefi-firmware ]]; then
+        chmod -x /etc/grub.d/30_uefi-firmware 2>/dev/null || true
+      fi
+      if command -v update-grub >/dev/null 2>&1; then
+        update-grub >/tmp/qe-grub.log 2>&1 || log "警告：update-grub 失败，见 /tmp/qe-grub.log"
+      elif command -v grub-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub ]]; then
+        grub-mkconfig -o /boot/grub/grub.cfg >/tmp/qe-grub.log 2>&1 || log "警告：grub-mkconfig 失败，见 /tmp/qe-grub.log"
+      fi
+      log "已隐藏 GRUB 菜单（备份 /etc/default/grub.qe-backup）"
+    fi
+  fi
+
   # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
   local gui_home
   gui_home="$(getent passwd "$GUI_USER" | cut -d: -f6)"
