@@ -18,7 +18,7 @@ members = [
     "crates/qep2p",
 ]
 # Tauri 应用是独立工程（自有前端工具链与发布流程），不并入本 workspace
-exclude = ["apps/agent-client", "apps/boot-display"]
+exclude = ["apps/agent-client", "apps/boot-display", "apps/teacher-client"]
 
 [workspace.package]
 version = "0.1.0"

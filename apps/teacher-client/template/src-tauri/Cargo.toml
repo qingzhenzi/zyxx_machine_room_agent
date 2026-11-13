@@ -1,0 +1,35 @@
+[package]
+name = "desktop-starter"
+version = "0.1.0"
+description = "Desktop Starter — a Tauri 2 + Vue 3 desktop app template"
+authors = ["Desktop Starter contributors"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the library name distinct from the binary name
+# (needed on Windows, see https://github.com/rust-lang/cargo/issues/8519).
+name = "desktop_starter_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-log = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# See https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

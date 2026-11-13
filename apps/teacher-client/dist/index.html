@@ -2,188 +2,32 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
-    <title>Room Node 教师端</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>QEStudio Agent</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a white flash.
+      ;(function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem('qestudio.settings') || '{}')
+          var theme = saved.theme || 'dark'
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          document.documentElement.dataset.theme =
+            theme === 'system' ? (dark ? 'dark' : 'light') : theme
+          document.documentElement.dataset.density = saved.density || 'compact'
+        } catch (error) {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.dataset.density = 'compact'
+        }
+      })()
+    </script>
+    <style>html,body{background:#0c0e11;height:100%;margin:0}html[data-theme=light],html[data-theme=light] body{background:#ecebe6}</style>
+    <script type="module" crossorigin src="/assets/index-Cud47RPD.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-w6SBtSIQ.css">
   </head>
+
   <body>
-    <div id="app" class="app">
-      <!-- ---------------------------------------------------------------- -->
-      <!-- 登录页：控制节点地址 + 账号密码                                   -->
-      <!-- ---------------------------------------------------------------- -->
-      <main id="login-view" class="login-shell">
-        <section class="login-card" aria-labelledby="login-title">
-          <div class="brand">
-            <span class="brand-mark" aria-hidden="true">RN</span>
-            <div>
-              <h1 id="login-title">Room Node 教师端</h1>
-              <p class="brand-sub">教师工作台桌面客户端 · 阶段 1 MVP</p>
-            </div>
-          </div>
-
-          <form id="login-form" class="login-form" novalidate>
-            <label class="field">
-              <span>控制节点地址</span>
-              <input
-                id="base-url"
-                name="base-url"
-                type="url"
-                inputmode="url"
-                placeholder="http://127.0.0.1:5174"
-                value="http://127.0.0.1:5174"
-                spellcheck="false"
-                autocomplete="url"
-                required
-              />
-              <small>Web 控制台入口（含 /api/v1 反向代理），例如 http://127.0.0.1:5174</small>
-            </label>
-
-            <label class="field">
-              <span>账号</span>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                placeholder="teacher"
-                autocomplete="username"
-                spellcheck="false"
-                required
-              />
-            </label>
-
-            <label class="field">
-              <span>密码</span>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                placeholder="••••••••"
-                autocomplete="current-password"
-                required
-              />
-            </label>
-
-            <p id="login-error" class="form-error" role="alert" hidden></p>
-
-            <button id="login-submit" class="btn btn-primary btn-block" type="submit">
-              登录
-            </button>
-          </form>
-
-          <p class="login-hint">
-            登录令牌仅保存在本机 localStorage；HTTP 请求由桌面端 Rust 进程转发，不经过浏览器
-            CORS。
-          </p>
-        </section>
-        <p class="login-foot">Room Node · QEStudio</p>
-      </main>
-
-      <!-- ---------------------------------------------------------------- -->
-      <!-- 教师数据页：机器 / 课程简表 + 打开 Web 工作台                      -->
-      <!-- ---------------------------------------------------------------- -->
-      <main id="dashboard-view" class="dashboard" hidden>
-        <header class="topbar">
-          <div class="brand brand-row">
-            <span class="brand-mark small" aria-hidden="true">RN</span>
-            <div>
-              <h1>Room Node 教师端</h1>
-              <p id="node-label" class="brand-sub">未连接</p>
-            </div>
-          </div>
-
-          <div class="topbar-actions">
-            <button id="refresh-btn" class="btn" type="button">刷新</button>
-            <button id="open-workspace-btn" class="btn btn-primary" type="button">
-              在浏览器中打开教师工作台
-            </button>
-            <button id="logout-btn" class="btn btn-danger" type="button">退出登录</button>
-          </div>
-        </header>
-
-        <div id="banner" class="banner" role="alert" hidden></div>
-
-        <section class="user-strip" aria-label="当前账号">
-          <span class="avatar" id="user-avatar" aria-hidden="true">T</span>
-          <div class="user-meta">
-            <span id="user-label" class="user-name">未登录</span>
-            <span id="user-roles" class="user-roles"></span>
-          </div>
-          <span id="data-updated" class="updated"></span>
-        </section>
-
-        <section class="stats" aria-label="概览">
-          <article class="stat">
-            <span id="stat-machines" class="stat-value">—</span>
-            <span class="stat-label">可用机器</span>
-          </article>
-          <article class="stat">
-            <span id="stat-online" class="stat-value">—</span>
-            <span class="stat-label">在线机器</span>
-          </article>
-          <article class="stat">
-            <span id="stat-schedules" class="stat-value">—</span>
-            <span class="stat-label">课表</span>
-          </article>
-          <article class="stat">
-            <span id="stat-role" class="stat-value stat-value-sm">—</span>
-            <span class="stat-label">当前角色</span>
-          </article>
-        </section>
-
-        <div class="grid">
-          <section class="panel" aria-labelledby="machines-title">
-            <header class="panel-head">
-              <h2 id="machines-title">我的可用机器</h2>
-              <span id="machines-status" class="panel-status"></span>
-            </header>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>设备槽位</th>
-                    <th>序列号</th>
-                    <th>房间</th>
-                    <th>在线</th>
-                    <th>健康</th>
-                  </tr>
-                </thead>
-                <tbody id="machines-body"></tbody>
-              </table>
-            </div>
-            <p id="machines-empty" class="empty" hidden>暂无机器数据</p>
-          </section>
-
-          <section class="panel" aria-labelledby="schedules-title">
-            <header class="panel-head">
-              <h2 id="schedules-title">课程简表</h2>
-              <span id="schedules-status" class="panel-status"></span>
-            </header>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>课程 / 课表</th>
-                    <th>房间</th>
-                    <th>起止日期</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody id="schedules-body"></tbody>
-              </table>
-            </div>
-            <p id="schedules-empty" class="empty" hidden>暂无课表数据</p>
-          </section>
-        </div>
-
-        <footer class="foot">
-          Room Node Teacher Client · Tauri v2 · 只读 MVP（数据来自控制节点 admin API）
-        </footer>
-      </main>
-
-      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    </div>
-
-    <script src="./app.js" defer></script>
+    <div id="app"></div>
   </body>
 </html>

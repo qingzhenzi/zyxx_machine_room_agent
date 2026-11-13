@@ -1,31 +1,58 @@
 [package]
-name = "teacher-client"
+name = "qe-teacher-client"
 version = "0.1.0"
-description = "Room Node 教师端桌面客户端（Tauri v2 MVP）"
+description = "QEStudio teacher console GUI client"
 authors = ["QEStudio"]
 license = "MIT"
-repository = "https://github.com/QEStudio/backend-template"
+repository = "https://github.com/QEStudio/qe-teacher-client"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.90"
 
-# A desktop shell that only exposes two small commands; keep the dependency set
-# intentionally tiny so `cargo build -p teacher-client` stays fast and CI-friendly.
+[lib]
+# The `_lib` suffix keeps the library name distinct from the binary name
+# (required on Windows, see https://github.com/rust-lang/cargo/issues/8519).
+name = "qe_teacher_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# Tauri core.
+tauri = { version = "2", features = ["tray-icon"] }
+
+# Official plugins.
+tauri-plugin-autostart = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-log = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+
+# Serialization and OS integrations.
+keyring = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# HTTP happens in Rust (not in the webview) so requests are not subject to the
-# browser CORS policy of the control-node API. rustls avoids an OpenSSL system dep.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+thiserror = "2"
+tokio = { version = "1", features = ["process", "time"] }
 
-# This app is its own workspace root: the repo intentionally keeps Tauri apps out
-# of `room_agent/Cargo.toml` (same as `apps/agent-client`), so backend builds do
-# not pull webkit2gtk/tauri into the workspace lockfile or CI.
-[workspace]
+# KDE Wayland always-on-top bridge (KWin scripting over D-Bus).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
 
+# Keep the crate warning-free under `cargo clippy -- -D warnings`.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1
 lto = true

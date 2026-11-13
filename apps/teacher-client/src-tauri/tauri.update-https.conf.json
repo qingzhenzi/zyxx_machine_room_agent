@@ -1,0 +1,7 @@
+{
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://localhost:8787/latest.json"]
+    }
+  }
+}

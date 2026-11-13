@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=QEStudio Agent
+GenericName=QEStudio Agent
+Comment=QEStudio 机器 agent 的本机状态/注册/日志客户端
+Exec=/usr/local/bin/qe-agent-client
+Icon=qe-agent-client
+Terminal=false
+Categories=Utility;
+Keywords=QEStudio;agent;enroll;logs;
+StartupNotify=true

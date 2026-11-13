@@ -1,0 +1,10 @@
+# Isolate this app from the pnpm workspace that exists in the user's home directory.
+packages:
+  - '.'
+
+minimumReleaseAgeExclude:
+  - '@tauri-apps/plugin-notification@2.8.0'
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - esbuild
