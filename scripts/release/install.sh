@@ -334,6 +334,9 @@ function enforce(client) {
 }
 workspace.windowAdded.connect(enforce);
 workspace.windowActivated.connect(enforce);
+// KWin 6: windowList()；首次登录时 boot-display 可能已存在，补一次全量 enforce
+var windows = workspace.windowList ? workspace.windowList() : (workspace.clientList ? workspace.clientList() : []);
+for (var i = 0; i < windows.length; i++) enforce(windows[i]);
 KJS
         chown -R "$GUI_USER":"$(id -gn "$GUI_USER")" "$gui_home_kde/.local/share/kwin"
         # 启用脚本：直接写 kwinrc，避免依赖 DBus/当前会话
