@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Cpu, Monitor, Play, Power, RefreshCw, RotateCcw, Server, Settings, Square, Users } from 'lucide-vue-next'
 
 import BrandMark from '@/components/ui/BrandMark.vue'
@@ -134,10 +134,15 @@ async function loadMachine(serial: string) {
   try {
     const vmData = await sendCommand('vm', 'list')
     vms.value = (vmData?.vms ?? []) as VmRow[]
-    const containerData = await sendCommand('container', 'list')
-    containers.value = (containerData?.containers ?? containerData?.items ?? []) as ContainerRow[]
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  // 容器后端可能未安装（Incus）；不能让容器错误把 VM 列表一起清掉。
+  try {
+    const containerData = await sendCommand('container', 'list')
+    containers.value = (containerData?.containers ?? containerData?.items ?? []) as ContainerRow[]
+  } catch {
+    containers.value = []
   } finally {
     detailBusy.value = false
   }
@@ -163,7 +168,14 @@ function formatMemory(bytes?: number) { return bytes ? `${Math.round(bytes / 102
 function shortSerial(serial: string) { return serial.length > 14 ? `${serial.slice(0, 8)}…${serial.slice(-4)}` : serial }
 function selectMachine(serial: string) { if (!detailBusy.value) void loadMachine(serial) }
 
+let refreshTimer: number | undefined
+
 onMounted(() => {
+  refreshTimer = window.setInterval(() => {
+    if (loggedIn.value && selectedMachine.value && !detailBusy.value && !busy.value) {
+      void loadMachine(selectedMachine.value)
+    }
+  }, 5000)
   const savedUser = localStorage.getItem('qe.teacher.username')
   const savedPass = localStorage.getItem('qe.teacher.password')
   if (remember.value && savedUser && savedPass) {
@@ -173,6 +185,10 @@ onMounted(() => {
     return
   }
   if (loggedIn.value) void refresh()
+})
+
+onUnmounted(() => {
+  if (refreshTimer !== undefined) window.clearInterval(refreshTimer)
 })
 </script>
 
