@@ -264,7 +264,13 @@ EOF
       log "已隐藏 GRUB 菜单（备份 /etc/default/grub.qe-backup）"
     fi
   fi
-  configure_grub_password
+  # GRUB 密码默认不启用：superusers 会让所有启动项默认需要认证，配置错误会卡启动。
+  # 只有显式 --grub-password 才启用；后续应加 --unrestricted 并先在 VM 验证。
+  if [[ -n "$GRUB_PASSWORD" ]]; then
+    configure_grub_password
+  else
+    log "未启用 GRUB 密码（如需锁定 Esc/Shift，请显式 --grub-password，且先在测试机验证）"
+  fi
 
   # 3) 关闭 Plasma 锁屏（否则 boot-display 退出后会被锁屏盖住）
   local gui_home

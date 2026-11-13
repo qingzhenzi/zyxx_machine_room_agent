@@ -32,10 +32,11 @@ GRUB_DISABLE_RECOVERY=true
 - 备份 `/etc/default/grub` → `.qe-backup`
 - `update-grub`（Debian）或 `grub-mkconfig`（Arch）
 - 去掉 `/etc/grub.d/30_uefi-firmware` 的 UEFI 菜单项
-- 设置 GRUB 超级用户密码（`/etc/grub.d/40_custom`，PBKDF2）：
-  - 默认随机生成，保存在 `/root/qe-grub-password` (0600)
-  - 也可 `--grub-password PASS`
-  - 按 Esc/Shift 只能到密码提示，不能编辑启动项/进 recovery
+- GRUB 密码（默认**不启用**）：`--grub-password PASS` 才写入
+  - **警告**：`set superusers` 会让所有启动项默认需要认证，配置不当会把机器卡在密码提示；
+    安装器目前只把它作为显式选项，默认不启用
+  - 正确做法是给启动项加 `--unrestricted`，须先在测试 VM 验证后再用于生产
+  - 真机曾因此卡住启动，已通过 SystemRescue 恢复；恢复后安装器改为 opt-in
 
 TTY：
 
