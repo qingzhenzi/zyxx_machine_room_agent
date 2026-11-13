@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { Cpu, Monitor, Play, Power, RefreshCw, RotateCcw, Server, Settings, Square, Users } from 'lucide-vue-next'
+
+import BrandMark from '@/components/ui/BrandMark.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 interface MachineRow {
   serial: string
@@ -20,19 +24,22 @@ const controlUrl = ref(localStorage.getItem('qe.teacher.control') ?? 'http://192
 const username = ref('admin')
 const password = ref('')
 const token = ref(localStorage.getItem('qe.teacher.token') ?? '')
+const remember = ref(localStorage.getItem('qe.teacher.remember') !== 'false')
 const busy = ref(false)
 const error = ref('')
 const rooms = ref<RoomRow[]>([])
 const machines = ref<MachineRow[]>([])
 const selectedRoom = ref(localStorage.getItem('qe.teacher.room') ?? '')
 const selectedMachine = ref('')
-const remember = ref(localStorage.getItem('qe.teacher.remember') !== 'false')
 const vms = ref<VmRow[]>([])
 const containers = ref<ContainerRow[]>([])
 const detailBusy = ref(false)
 
 const loggedIn = computed(() => token.value.length > 0)
-const roomMachines = computed(() => machines.value.filter((m) => !selectedRoom.value || m.room_id === selectedRoom.value))
+const currentRoom = computed(() => rooms.value.find((room) => room.id === selectedRoom.value))
+const roomMachines = computed(() => machines.value.filter((machine) => !selectedRoom.value || machine.room_id === selectedRoom.value))
+const currentMachine = computed(() => roomMachines.value.find((machine) => machine.serial === selectedMachine.value))
+const onlineCount = computed(() => roomMachines.value.filter((machine) => isOnline(machine)).length)
 
 async function api(path: string, init: RequestInit = {}) {
   const response = await fetch(`${controlUrl.value.replace(/\/$/, '')}${path}`, {
@@ -82,7 +89,7 @@ async function refresh() {
   try {
     const [roomPage, machinePage] = await Promise.all([
       api('/api/v1/admin/rooms?page_size=100'),
-      api('/api/v1/admin/machines?page_size=200'),
+      api('/api/v1/admin/machines?page_size=100'),
     ])
     rooms.value = roomPage.items ?? []
     machines.value = machinePage.items ?? []
@@ -150,9 +157,11 @@ async function runContainer(op: string, name: string) {
   finally { detailBusy.value = false }
 }
 
+function isOnline(machine: MachineRow) { return machine.online === 'online' || machine.session_online === 'online' }
 function stateLabel(state?: string) { return state ?? '未知' }
-function machineOnline(machine: MachineRow) { return machine.online === 'online' || machine.session_online === 'online' }
 function formatMemory(bytes?: number) { return bytes ? `${Math.round(bytes / 1024 / 1024 / 1024)} GB` : '—' }
+function shortSerial(serial: string) { return serial.length > 14 ? `${serial.slice(0, 8)}…${serial.slice(-4)}` : serial }
+function selectMachine(serial: string) { if (!detailBusy.value) void loadMachine(serial) }
 
 onMounted(() => {
   const savedUser = localStorage.getItem('qe.teacher.username')
@@ -168,106 +177,127 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-dvh bg-slate-950 text-slate-100">
-    <header class="border-b border-white/10 px-6 py-4">
-      <div class="mx-auto flex max-w-7xl items-center justify-between">
-        <div>
-          <h1 class="text-lg font-semibold">QEStudio 教师工作台</h1>
-          <p class="text-xs text-slate-400">单房间 · 机器管理 · 虚拟机/容器控制</p>
+  <div class="grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink">
+    <div class="mx-auto flex h-full w-full max-w-[1280px] flex-col px-6 py-5">
+      <header class="mb-4 flex items-start gap-3">
+        <BrandMark :size="38" />
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <h1 class="text-[20px] font-semibold tracking-[-0.02em]">QEStudio 教师工作台</h1>
+            <StatusBadge :label="loggedIn ? '已登录' : '未登录'" :tone="loggedIn ? 'success' : 'muted'" />
+          </div>
+          <p class="mt-0.5 text-[11px] text-muted">单房间 · 机器管理 · 虚拟机/容器控制</p>
         </div>
-        <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">{{ loggedIn ? '已登录' : '未登录' }}</span>
-      </div>
-    </header>
+        <button class="btn btn-sm" :disabled="busy || !loggedIn" @click="refresh">
+          <RefreshCw :size="14" /> 刷新
+        </button>
+      </header>
 
-    <main class="mx-auto max-w-7xl space-y-4 p-6">
-      <section v-if="!loggedIn" class="rounded-xl border border-white/10 bg-slate-900 p-5">
-        <h2 class="mb-3 text-sm font-semibold">登录控制面</h2>
-        <div class="grid gap-3 md:grid-cols-4">
-          <label class="text-xs text-slate-400">控制面地址<input v-model="controlUrl" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
-          <label class="text-xs text-slate-400">用户名<input v-model="username" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
-          <label class="text-xs text-slate-400">密码<input v-model="password" type="password" class="mt-1 w-full rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" /></label>
-          <div class="flex items-end gap-2">
-            <label class="flex h-9 items-center gap-2 text-xs text-slate-400"><input v-model="remember" type="checkbox" class="accent-cyan-500" />自动登录</label>
-            <button class="h-9 rounded bg-cyan-500 px-4 text-sm font-medium text-slate-950 disabled:opacity-50" :disabled="busy" @click="login">登录</button>
+      <section v-if="!loggedIn" class="flex flex-1 items-center justify-center">
+        <div class="panel w-full max-w-[560px] p-5">
+          <div class="mb-4 flex items-center gap-2 text-[13px] font-semibold"><Settings :size="16" /> 登录控制面</div>
+          <div class="grid gap-3">
+            <label class="grid gap-1 text-[11px] text-muted">
+              控制面地址
+              <input v-model="controlUrl" class="rounded-md border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink outline-none focus:border-accent-line" />
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="grid gap-1 text-[11px] text-muted">
+                用户名
+                <input v-model="username" class="rounded-md border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink outline-none focus:border-accent-line" />
+              </label>
+              <label class="grid gap-1 text-[11px] text-muted">
+                密码
+                <input v-model="password" type="password" class="rounded-md border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink outline-none focus:border-accent-line" @keydown.enter="login" />
+              </label>
+            </div>
+            <div class="flex items-center justify-between">
+              <label class="flex items-center gap-2 text-[11px] text-muted"><input v-model="remember" type="checkbox" class="accent-[var(--accent)]" />自动登录</label>
+              <button class="btn btn-primary" :disabled="busy" @click="login">{{ busy ? '登录中…' : '登录' }}</button>
+            </div>
           </div>
         </div>
       </section>
 
-      <p v-if="error" class="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">{{ error }}</p>
+      <template v-else>
+        <p v-if="error" class="mb-3 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-[11px] text-danger">{{ error }}</p>
 
-      <template v-if="loggedIn">
-        <section class="flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-slate-900 p-4">
-          <label class="text-xs text-slate-400">管理房间
-            <select v-model="selectedRoom" class="mt-1 block min-w-64 rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm" @change="refresh">
+        <section class="mb-4 grid gap-3 sm:grid-cols-3">
+          <div class="panel p-4"><div class="flex items-center gap-2 text-[11px] text-muted"><Server :size="14" /> 管理房间</div><p class="mt-2 text-[16px] font-semibold">{{ currentRoom?.code ?? '—' }}</p><p class="text-[11px] text-muted">{{ currentRoom?.name ?? '选择房间' }}</p></div>
+          <div class="panel p-4"><div class="flex items-center gap-2 text-[11px] text-muted"><Users :size="14" /> 机器</div><p class="mt-2 text-[16px] font-semibold">{{ roomMachines.length }}</p><p class="text-[11px] text-muted">在线 {{ onlineCount }} 台</p></div>
+          <div class="panel p-4"><div class="flex items-center gap-2 text-[11px] text-muted"><Cpu :size="14" /> 实验环境</div><p class="mt-2 text-[16px] font-semibold">{{ vms.length }} VM · {{ containers.length }} 容器</p><p class="text-[11px] text-muted">{{ currentMachine?.device_slot ?? '未选择机器' }}</p></div>
+        </section>
+
+        <section class="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-line bg-surface p-3">
+          <label class="grid gap-1 text-[11px] text-muted">
+            当前房间
+            <select v-model="selectedRoom" class="min-w-[260px] rounded-md border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink outline-none focus:border-accent-line" @change="refresh">
               <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.code }} · {{ room.name }}</option>
             </select>
           </label>
-          <button class="h-9 rounded border border-white/15 px-3 text-xs" :disabled="busy" @click="refresh">刷新</button>
-          <span class="text-xs text-slate-400">该房间 {{ roomMachines.length }} 台机器</span>
+          <span class="pb-2 text-[11px] text-muted">仅显示该房间设备</span>
         </section>
 
-        <div class="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <section class="space-y-2">
+        <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+          <section class="min-h-0 overflow-y-auto">
+            <div class="mb-2 flex items-center justify-between text-[11px] text-muted"><span>机器列表</span><span>{{ roomMachines.length }} 台</span></div>
             <button
               v-for="machine in roomMachines"
               :key="machine.serial"
-              class="w-full rounded-xl border p-3 text-left text-xs transition"
-              :class="machine.serial === selectedMachine ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-white/10 bg-slate-900 hover:border-white/25'"
-              @click="loadMachine(machine.serial)"
+              type="button"
+              class="mb-2 w-full rounded-lg border p-3 text-left transition-colors"
+              :class="machine.serial === selectedMachine ? 'border-accent-line bg-accent-soft' : 'border-line bg-surface hover:border-line-strong'"
+              @click="selectMachine(machine.serial)"
             >
               <div class="flex items-center justify-between gap-2">
-                <span class="font-medium">{{ machine.device_slot ?? machine.serial.slice(0, 12) }}</span>
-                <span :class="machineOnline(machine) ? 'text-emerald-300' : 'text-slate-500'">{{ machineOnline(machine) ? '在线' : '离线' }}</span>
+                <span class="truncate text-[12px] font-medium">{{ machine.device_slot ?? shortSerial(machine.serial) }}</span>
+                <StatusBadge :label="isOnline(machine) ? '在线' : '离线'" :tone="isOnline(machine) ? 'success' : 'muted'" />
               </div>
-              <p class="mt-1 truncate text-slate-400">{{ machine.room_name ?? '未绑定房间' }}</p>
-              <p class="mt-1 text-slate-500">{{ machine.last_seen_at ?? '无心跳' }}</p>
+              <p class="mt-1 truncate text-[11px] text-muted">{{ machine.room_name ?? '未绑定房间' }}</p>
+              <p class="mt-0.5 truncate font-mono text-[10px] text-faint">{{ shortSerial(machine.serial) }}</p>
             </button>
-            <p v-if="roomMachines.length === 0" class="rounded border border-white/10 p-3 text-xs text-slate-500">该房间暂无机器</p>
+            <p v-if="roomMachines.length === 0" class="panel p-4 text-[11px] text-muted">该房间暂无机器</p>
           </section>
 
-          <section class="space-y-4">
-            <div class="rounded-xl border border-white/10 bg-slate-900 p-4">
-              <div class="flex items-center justify-between">
-                <div>
-                  <h2 class="text-sm font-semibold">虚拟机</h2>
-                  <p class="text-xs text-slate-400">{{ selectedMachine || '未选择机器' }}</p>
-                </div>
-                <button class="rounded border border-white/15 px-3 py-1 text-xs" :disabled="detailBusy" @click="loadMachine(selectedMachine)">刷新</button>
+          <section class="min-h-0 space-y-4 overflow-y-auto">
+            <div class="panel overflow-hidden">
+              <div class="panel-header">
+                <div><h2 class="panel-title">虚拟机</h2><p class="panel-subtitle">{{ selectedMachine ? shortSerial(selectedMachine) : '未选择机器' }}</p></div>
+                <button class="btn btn-sm" :disabled="detailBusy || !selectedMachine" @click="loadMachine(selectedMachine)"><RefreshCw :size="13" /> 刷新</button>
               </div>
-              <div class="mt-3 space-y-2">
-                <div v-for="vm in vms" :key="vm.name" class="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 bg-slate-950 p-3 text-xs">
-                  <div>
-                    <span class="font-medium">{{ vm.name }}</span>
-                    <span class="ml-2 text-slate-400">{{ stateLabel(vm.state) }}</span>
-                    <span class="ml-2 text-slate-500">{{ vm.vcpus ?? '—' }} vCPU · {{ formatMemory(vm.memory_bytes) }}</span>
+              <div class="space-y-2 p-3">
+                <div v-for="vm in vms" :key="vm.name" class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-surface-2 p-3">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2"><span class="text-[12px] font-medium">{{ vm.name }}</span><StatusBadge :label="stateLabel(vm.state)" :tone="vm.state === 'running' ? 'success' : 'muted'" /></div>
+                    <p class="mt-1 text-[10px] text-muted">{{ vm.vcpus ?? '—' }} vCPU · {{ formatMemory(vm.memory_bytes) }}</p>
                   </div>
                   <div class="flex gap-1">
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runVm('start', vm.name)">启动</button>
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runVm('shutdown', vm.name)">关机</button>
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runVm('destroy', vm.name)">强制停止</button>
+                    <button class="btn btn-sm" :disabled="detailBusy" @click="runVm('start', vm.name)"><Play :size="12" /> 启动</button>
+                    <button class="btn btn-sm" :disabled="detailBusy" @click="runVm('shutdown', vm.name)"><Power :size="12" /> 关机</button>
+                    <button class="btn btn-sm btn-danger" :disabled="detailBusy" @click="runVm('destroy', vm.name)"><Square :size="12" /> 强制停止</button>
                   </div>
                 </div>
-                <p v-if="vms.length === 0" class="text-xs text-slate-500">没有虚拟机</p>
+                <div v-if="vms.length === 0" class="flex items-center gap-2 p-3 text-[11px] text-muted"><Monitor :size="14" /> 没有虚拟机</div>
               </div>
             </div>
 
-            <div class="rounded-xl border border-white/10 bg-slate-900 p-4">
-              <h2 class="text-sm font-semibold">容器</h2>
-              <div class="mt-3 space-y-2">
-                <div v-for="container in containers" :key="container.name" class="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 bg-slate-950 p-3 text-xs">
-                  <div><span class="font-medium">{{ container.name }}</span><span class="ml-2 text-slate-400">{{ stateLabel(container.state ?? container.status) }}</span></div>
+            <div class="panel overflow-hidden">
+              <div class="panel-header"><div><h2 class="panel-title">容器</h2><p class="panel-subtitle">Incus 容器</p></div></div>
+              <div class="space-y-2 p-3">
+                <div v-for="container in containers" :key="container.name" class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-surface-2 p-3">
+                  <div class="flex min-w-0 items-center gap-2"><span class="text-[12px] font-medium">{{ container.name }}</span><StatusBadge :label="stateLabel(container.state ?? container.status)" :tone="(container.state ?? container.status) === 'running' ? 'success' : 'muted'" /></div>
                   <div class="flex gap-1">
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runContainer('start', container.name)">启动</button>
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runContainer('stop', container.name)">停止</button>
-                    <button class="rounded border border-white/15 px-2 py-1" :disabled="detailBusy" @click="runContainer('restart', container.name)">重启</button>
+                    <button class="btn btn-sm" :disabled="detailBusy" @click="runContainer('start', container.name)"><Play :size="12" /> 启动</button>
+                    <button class="btn btn-sm" :disabled="detailBusy" @click="runContainer('stop', container.name)"><Square :size="12" /> 停止</button>
+                    <button class="btn btn-sm" :disabled="detailBusy" @click="runContainer('restart', container.name)"><RotateCcw :size="12" /> 重启</button>
                   </div>
                 </div>
-                <p v-if="containers.length === 0" class="text-xs text-slate-500">没有容器</p>
+                <div v-if="containers.length === 0" class="flex items-center gap-2 p-3 text-[11px] text-muted"><Server :size="14" /> 没有容器</div>
               </div>
             </div>
           </section>
         </div>
       </template>
-    </main>
+    </div>
   </div>
 </template>
