@@ -62,3 +62,15 @@ GRUB 菜单隐藏只是体验/防误触，不是安全边界。懂的人仍可�
 - 禁用 USB 启动
 - 固定从内置硬盘启动
 - 必要时 Secure Boot / TPM
+
+## boot-display 置顶/防关闭（KDE Wayland）
+
+- Tauri `alwaysOnTop` 在 KWin Wayland 不一定可靠，安装器额外安装 KWin 脚本
+  `qe-kiosk`：窗口 added/activated 时强制 `keepAbove/fullScreen/skipTaskbar/noBorder`。
+- boot-display 拦截 `CloseRequested`，Alt+F4/窗口关闭不会结束展示层。
+- 安装器禁用 KWin/Plasma 常用快捷键：Alt+F4、Alt+F3、Alt+Tab、Meta 启动器、
+  Ctrl+Alt+Del 注销等；这些快捷键下次登录生效。
+- 调试解锁：`Ctrl+Alt+Shift+U`，输入 `QE_BOOT_DISPLAY_DEBUG_PASSWORD`
+  （安装默认 `QEBootDebug2026!`，可改）后通知 agent 停止 supervise 并退出展示层。
+- 真机验证：KWin 脚本日志 `QE-KIOSK enforced`，截图确认全屏置顶；
+  agent IPC `/v1/display/unlock` 返回 ok 并结束 boot-display。
